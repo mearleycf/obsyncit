@@ -12,70 +12,26 @@ import sys
 import shutil
 import json
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Set
 import tomli
 from loguru import logger
 from datetime import datetime
+from jsonschema import validate, ValidationError
+from pydantic import ValidationError as PydanticValidationError
 
-@dataclass
-class SyncConfig:
-    """Configuration for the sync operation."""
-    source_vault: Path
-    target_vault: Path
-    dry_run: bool
-    settings_dir: str
-    backup_count: int
-    core_settings_files: Set[str]
-    settings_dirs: Set[str]
+from schemas import Config, SCHEMA_MAP
 
-    @classmethod
-    def from_toml(cls, config_path: Path, source_vault: Path, target_vault: Path, dry_run: bool) -> 'SyncConfig':
-        """
-        Create a configuration instance from a TOML file.
-        
-        Args:
-            config_path: Path to the TOML configuration file
-            source_vault: Path to the source vault
-            target_vault: Path to the target vault
-            dry_run: Whether to perform a dry run
-            
-        Returns:
-            SyncConfig: Configuration instance
-            
-        Raises:
-            FileNotFoundError: If config file doesn't exist
-            tomli.TOMLDecodeError: If config file is invalid
-        """
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
-            
-        with open(config_path, 'rb') as f:
-            config = tomli.load(f)
-            
-        return cls(
-            source_vault=source_vault,
-            target_vault=target_vault,
-            dry_run=dry_run,
-            settings_dir=config['general']['settings_dir'],
-            backup_count=config['general']['backup_count'],
-            core_settings_files=frozenset(config['sync']['core_settings_files']),
-            settings_dirs=frozenset(config['sync']['settings_dirs'])
-        )
 
-def setup_logging(config_path: Path) -> None:
+def setup_logging(config: Config) -> None:
     """
-    Configure Loguru logging based on TOML configuration.
+    Configure Loguru logging based on configuration.
     
     Args:
-        config_path: Path to the TOML configuration file
+        config: Validated configuration object
     """
-    with open(config_path, 'rb') as f:
-        config = tomli.load(f)
-    
-    log_config = config['logging']
-    log_dir = Path(log_config['log_dir'])
+    log_config = config.logging
+    log_dir = Path(log_config.log_dir)
     log_dir.mkdir(exist_ok=True)
     
     # Remove default handler
@@ -84,20 +40,21 @@ def setup_logging(config_path: Path) -> None:
     # Add console handler
     logger.add(
         sys.stderr,
-        format=log_config['format'],
-        level=log_config['level'],
+        format=log_config.format,
+        level=log_config.level,
         colorize=True
     )
     
     # Add file handler
     logger.add(
         log_dir / "obsync_{time}.log",
-        rotation=log_config['rotation'],
-        retention=log_config['retention'],
-        compression=log_config['compression'],
+        rotation=log_config.rotation,
+        retention=log_config.retention,
+        compression=log_config.compression,
         level="DEBUG",
-        format=log_config['format']
+        format=log_config.format
     )
+
 
 class ObsidianSettingsSync:
     """Handles syncing of Obsidian settings between vaults."""
@@ -111,18 +68,36 @@ class ObsidianSettingsSync:
             target_vault: Path to the target Obsidian vault
             dry_run: If True, only simulate the sync operation
             config_path: Path to the TOML configuration file
+            
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            PydanticValidationError: If config file has invalid structure
+            tomli.TOMLDecodeError: If config file is invalid TOML
         """
         config_path = Path(config_path)
-        setup_logging(config_path)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            
+        # Load and validate configuration
+        try:
+            with open(config_path, 'rb') as f:
+                config_data = tomli.load(f)
+            self.config = Config.model_validate(config_data)
+        except PydanticValidationError as e:
+            logger.error("Invalid configuration:")
+            for error in e.errors():
+                logger.error(f"  - {' -> '.join(str(loc) for loc in error['loc'])}: {error['msg']}")
+            raise
+            
+        # Initialize logging
+        setup_logging(self.config)
         
-        self.config = SyncConfig.from_toml(
-            config_path,
-            Path(source_vault).expanduser().resolve(),
-            Path(target_vault).expanduser().resolve(),
-            dry_run
-        )
+        # Set paths
+        self.source_vault = Path(source_vault).expanduser().resolve()
+        self.target_vault = Path(target_vault).expanduser().resolve()
+        self.dry_run = dry_run
         
-        logger.debug(f"Initialized sync from {self.config.source_vault} to {self.config.target_vault}")
+        logger.debug(f"Initialized sync from {self.source_vault} to {self.target_vault}")
 
     def validate_paths(self) -> bool:
         """
@@ -132,15 +107,15 @@ class ObsidianSettingsSync:
             bool: True if paths are valid, False otherwise
         """
         try:
-            if not self.config.source_vault.exists():
-                logger.error(f"Source vault does not exist: {self.config.source_vault}")
+            if not self.source_vault.exists():
+                logger.error(f"Source vault does not exist: {self.source_vault}")
                 return False
             
-            if not self.config.target_vault.exists():
-                logger.error(f"Target vault does not exist: {self.config.target_vault}")
+            if not self.target_vault.exists():
+                logger.error(f"Target vault does not exist: {self.target_vault}")
                 return False
             
-            source_settings = self.config.source_vault / self.config.settings_dir
+            source_settings = self.source_vault / self.config.general.settings_dir
             if not source_settings.exists():
                 logger.error(f"Source vault has no .obsidian directory: {source_settings}")
                 return False
@@ -155,19 +130,33 @@ class ObsidianSettingsSync:
 
     def validate_json_file(self, file_path: Path) -> bool:
         """
-        Validate that a file contains valid JSON.
+        Validate that a file contains valid JSON and matches its schema.
         
         Args:
             file_path: Path to the JSON file to validate
             
         Returns:
-            bool: True if JSON is valid or file doesn't exist, False otherwise
+            bool: True if JSON is valid and matches schema, False otherwise
         """
         try:
             if not file_path.exists():
                 return True  # Skip validation for non-existent files
+                
             with open(file_path, 'r', encoding='utf-8') as f:
-                json.load(f)
+                data = json.load(f)
+                
+            # Get schema for this file type
+            file_name = file_path.name
+            if file_name in SCHEMA_MAP:
+                try:
+                    validate(instance=data, schema=SCHEMA_MAP[file_name])
+                except ValidationError as e:
+                    logger.error(f"Schema validation failed for {file_path}:")
+                    logger.error(f"  - {e.message}")
+                    logger.debug(f"  - Path: {' -> '.join(str(p) for p in e.path)}")
+                    logger.debug(f"  - Schema path: {' -> '.join(str(p) for p in e.schema_path)}")
+                    return False
+                    
             return True
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in {file_path}: {str(e)}")
@@ -187,11 +176,11 @@ class ObsidianSettingsSync:
             Optional[Path]: Path to backup directory if successful, None otherwise
         """
         try:
-            target_settings = self.config.target_vault / self.config.settings_dir
+            target_settings = self.target_vault / self.config.general.settings_dir
             if target_settings.exists():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_dir = target_settings.parent / f"{self.config.settings_dir}_backup_{timestamp}"
-                if not self.config.dry_run:
+                backup_dir = target_settings.parent / f"{self.config.general.settings_dir}_backup_{timestamp}"
+                if not self.dry_run:
                     shutil.copytree(target_settings, backup_dir, dirs_exist_ok=True)
                 logger.info(f"Created backup of target settings at: {backup_dir}")
                 return backup_dir
@@ -204,11 +193,11 @@ class ObsidianSettingsSync:
     def cleanup_old_backups(self) -> None:
         """Clean up old backups, keeping only the specified number of latest backups."""
         try:
-            backup_pattern = f"{self.config.settings_dir}_backup_*"
-            backups = sorted(self.config.target_vault.glob(backup_pattern))
-            if len(backups) > self.config.backup_count:
-                for backup in backups[:-self.config.backup_count]:
-                    if not self.config.dry_run:
+            backup_pattern = f"{self.config.general.settings_dir}_backup_*"
+            backups = sorted(self.target_vault.glob(backup_pattern))
+            if len(backups) > self.config.general.backup_count:
+                for backup in backups[:-self.config.general.backup_count]:
+                    if not self.dry_run:
                         shutil.rmtree(backup)
                     logger.info(f"Removed old backup: {backup}")
         except PermissionError as e:
@@ -233,17 +222,17 @@ class ObsidianSettingsSync:
             # Create backup
             backup_path = self.backup_target_settings()
             
-            source_settings = self.config.source_vault / self.config.settings_dir
-            target_settings = self.config.target_vault / self.config.settings_dir
+            source_settings = self.source_vault / self.config.general.settings_dir
+            target_settings = self.target_vault / self.config.general.settings_dir
 
             # Create target .obsidian directory if it doesn't exist
-            if not self.config.dry_run:
+            if not self.dry_run:
                 target_settings.mkdir(exist_ok=True)
 
             # Determine what to sync
-            files_to_sync = [f for f in self.config.core_settings_files 
+            files_to_sync = [f for f in self.config.sync.core_settings_files 
                            if not selected_items or f in selected_items]
-            dirs_to_sync = [d for d in self.config.settings_dirs 
+            dirs_to_sync = [d for d in self.config.sync.settings_dirs 
                           if not selected_items or d in selected_items]
 
             # Sync core settings files
@@ -255,7 +244,7 @@ class ObsidianSettingsSync:
                     if not self.validate_json_file(source_file):
                         continue
                         
-                    if not self.config.dry_run:
+                    if not self.dry_run:
                         shutil.copy2(source_file, target_file)
                     logger.info(f"Synced settings file: {settings_file}")
 
@@ -265,7 +254,7 @@ class ObsidianSettingsSync:
                 target_dir = target_settings / dir_name
                 
                 if source_dir.exists():
-                    if not self.config.dry_run:
+                    if not self.dry_run:
                         shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
                     logger.info(f"Synced directory: {dir_name}")
 
@@ -284,6 +273,7 @@ class ObsidianSettingsSync:
         except Exception as e:
             logger.error(f"Error during sync: {str(e)}")
             return False
+
 
 def main() -> None:
     """Entry point for the command line interface."""
@@ -308,6 +298,7 @@ def main() -> None:
     except Exception as e:
         logger.exception("Fatal error during sync operation")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
