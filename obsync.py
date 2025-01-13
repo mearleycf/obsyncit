@@ -21,6 +21,7 @@ from jsonschema import validate, ValidationError
 from pydantic import ValidationError as PydanticValidationError
 
 from schemas import Config, SCHEMA_MAP
+from backup import BackupManager
 
 
 def setup_logging(config: Config) -> None:
@@ -97,6 +98,14 @@ class ObsidianSettingsSync:
         self.target_vault = Path(target_vault).expanduser().resolve()
         self.dry_run = dry_run
         
+        # Initialize backup manager
+        self.backup_manager = BackupManager(
+            vault_path=self.target_vault,
+            settings_dir=self.config.general.settings_dir,
+            backup_count=self.config.general.backup_count,
+            dry_run=self.dry_run
+        )
+        
         logger.debug(f"Initialized sync from {self.source_vault} to {self.target_vault}")
 
     def validate_paths(self) -> bool:
@@ -168,43 +177,6 @@ class ObsidianSettingsSync:
             logger.error(f"Error reading {file_path}: {str(e)}")
             return False
 
-    def backup_target_settings(self) -> Optional[Path]:
-        """
-        Create a backup of target vault settings.
-        
-        Returns:
-            Optional[Path]: Path to backup directory if successful, None otherwise
-        """
-        try:
-            target_settings = self.target_vault / self.config.general.settings_dir
-            if target_settings.exists():
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_dir = target_settings.parent / f"{self.config.general.settings_dir}_backup_{timestamp}"
-                if not self.dry_run:
-                    shutil.copytree(target_settings, backup_dir, dirs_exist_ok=True)
-                logger.info(f"Created backup of target settings at: {backup_dir}")
-                return backup_dir
-        except PermissionError as e:
-            logger.error(f"Permission denied creating backup: {str(e)}")
-        except Exception as e:
-            logger.error(f"Error creating backup: {str(e)}")
-        return None
-
-    def cleanup_old_backups(self) -> None:
-        """Clean up old backups, keeping only the specified number of latest backups."""
-        try:
-            backup_pattern = f"{self.config.general.settings_dir}_backup_*"
-            backups = sorted(self.target_vault.glob(backup_pattern))
-            if len(backups) > self.config.general.backup_count:
-                for backup in backups[:-self.config.general.backup_count]:
-                    if not self.dry_run:
-                        shutil.rmtree(backup)
-                    logger.info(f"Removed old backup: {backup}")
-        except PermissionError as e:
-            logger.error(f"Permission denied cleaning up backups: {str(e)}")
-        except Exception as e:
-            logger.error(f"Error cleaning up old backups: {str(e)}")
-
     def sync_settings(self, selected_items: Optional[List[str]] = None) -> bool:
         """
         Synchronize settings from source to target vault.
@@ -220,7 +192,10 @@ class ObsidianSettingsSync:
                 return False
 
             # Create backup
-            backup_path = self.backup_target_settings()
+            backup_path = self.backup_manager.create_backup()
+            if backup_path is None:
+                logger.error("Failed to create backup, aborting sync")
+                return False
             
             source_settings = self.source_vault / self.config.general.settings_dir
             target_settings = self.target_vault / self.config.general.settings_dir
@@ -259,7 +234,7 @@ class ObsidianSettingsSync:
                     logger.info(f"Synced directory: {dir_name}")
 
             # Cleanup old backups
-            self.cleanup_old_backups()
+            self.backup_manager.cleanup_old_backups()
 
             logger.success("Settings sync completed successfully!")
             if backup_path:
@@ -283,6 +258,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Show what would be synced without making changes")
     parser.add_argument("--items", nargs="+", help="Specific settings to sync (files or directories)")
     parser.add_argument("--config", type=Path, default=Path("config.toml"), help="Path to configuration file")
+    parser.add_argument("--restore-backup", type=Path, help="Restore from a specific backup")
     
     args = parser.parse_args()
     
@@ -293,7 +269,12 @@ def main() -> None:
             args.dry_run,
             args.config
         )
-        success = syncer.sync_settings(args.items)
+        
+        if args.restore_backup:
+            success = syncer.backup_manager.restore_backup(args.restore_backup)
+        else:
+            success = syncer.sync_settings(args.items)
+            
         sys.exit(0 if success else 1)
     except Exception as e:
         logger.exception("Fatal error during sync operation")
