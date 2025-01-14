@@ -4,6 +4,7 @@ Sync Manager - Core synchronization functionality.
 This module provides the core functionality for syncing settings between Obsidian vaults.
 """
 
+import json
 import shutil
 from pathlib import Path
 from typing import List, Optional, Set
@@ -26,10 +27,9 @@ class SyncManager:
 
     def __init__(
         self,
-        source_vault: str,
-        target_vault: str,
-        config: Config,
-        dry_run: bool = False
+        source_vault: str | Path,
+        target_vault: str | Path,
+        config: Config
     ) -> None:
         """Initialize the sync manager.
 
@@ -37,12 +37,10 @@ class SyncManager:
             source_vault: Path to the source vault
             target_vault: Path to the target vault
             config: Configuration object
-            dry_run: Whether to simulate operations without making changes
         """
         self.source = VaultManager(source_vault)
         self.target = VaultManager(target_vault)
         self.config = config
-        self.dry_run = dry_run
         self.backup_mgr = BackupManager(
             self.target.vault_path,
             config.backup.backup_dir,
@@ -53,54 +51,63 @@ class SyncManager:
         """Sync settings from source to target vault.
 
         Args:
-            items: Optional list of specific settings to sync
+            items: Optional list of specific items to sync. If None, syncs all items.
 
         Returns:
-            bool: True if sync was successful, False otherwise
+            bool: True if sync was successful, or if ignore_errors is True and at least one item synced
+
+        Raises:
+            SyncError: If there is an error during sync
         """
         try:
-            # Validate source vault
+            # Validate vaults
             if not self.source.validate_vault():
-                raise SyncError(
-                    "Invalid source vault",
-                    f"Path: {self.source.vault_path}"
-                )
-
-            # Validate target vault
+                raise SyncError("Invalid source vault", source=self.source.vault_path, target=self.target.vault_path)
             if not self.target.validate_vault():
-                raise SyncError(
-                    "Invalid target vault",
-                    f"Path: {self.target.vault_path}"
-                )
+                raise SyncError("Invalid target vault", source=self.source.vault_path, target=self.target.vault_path)
 
-            # Create backup before syncing
-            if not self.dry_run and not self.backup_mgr.create_backup():
-                raise BackupError(
-                    "Failed to create backup",
-                    f"Target vault: {self.target.vault_path}"
-                )
+            # Create backup of target settings if not in dry run mode
+            if not self.config.sync.dry_run:
+                try:
+                    self.backup_mgr.create_backup()
+                except BackupError as e:
+                    if not self.config.sync.ignore_errors:
+                        raise
+                    logger.warning(f"Backup failed but continuing: {str(e)}")
 
-            # Determine what to sync
-            sync_items = self._get_sync_items(items)
-            if not sync_items:
-                logger.warning("No items to sync")
+            # Get list of items to sync
+            if items is None:
+                items = self._get_sync_items()
+            elif not items:
+                logger.warning("No items specified for sync")
                 return True
+
+            # Create target settings directory if it doesn't exist
+            if not self.config.sync.dry_run:
+                self.target.settings_dir.mkdir(exist_ok=True)
 
             # Sync each item
             success = True
-            for item in sync_items:
+            any_success = False
+            for item in items:
                 try:
                     self._sync_item(item)
-                except Exception as e:
-                    logger.error(f"Failed to sync {item}: {str(e)}")
+                    any_success = True
+                except (SyncError, ValidationError) as e:
+                    if not self.config.sync.ignore_errors:
+                        raise
+                    logger.warning(f"Failed to sync {item}: {str(e)}")
                     success = False
 
-            return success
+            # Return True if all items synced successfully, or if ignore_errors is True and at least one item synced
+            return success if not self.config.sync.ignore_errors else any_success
 
         except Exception as e:
             logger.error(f"Sync failed: {str(e)}")
             logger.debug("", exc_info=True)
-            return False
+            if isinstance(e, (SyncError, ValidationError, BackupError)):
+                raise
+            raise SyncError(str(e), source=self.source.vault_path, target=self.target.vault_path) from e
 
     def _get_sync_items(self, items: Optional[List[str]] = None) -> Set[str]:
         """Get the list of items to sync based on config and user input.
@@ -116,25 +123,29 @@ class SyncManager:
 
         # Add core settings if enabled
         if self.config.sync.core_settings:
-            sync_items.add("app.json")
-            sync_items.add("appearance.json")
-            sync_items.add("hotkeys.json")
+            for item in ["app.json", "appearance.json", "hotkeys.json"]:
+                if (self.source.settings_dir / item).exists():
+                    sync_items.add(item)
 
         # Add core plugins if enabled
         if self.config.sync.core_plugins:
-            sync_items.add("core-plugins.json")
+            if (self.source.settings_dir / "core-plugins.json").exists():
+                sync_items.add("core-plugins.json")
 
         # Add community plugins if enabled
         if self.config.sync.community_plugins:
-            sync_items.add("community-plugins.json")
+            if (self.source.settings_dir / "community-plugins.json").exists():
+                sync_items.add("community-plugins.json")
 
         # Add snippets if enabled
         if self.config.sync.snippets:
-            sync_items.add("snippets")
+            if (self.source.settings_dir / "snippets").exists():
+                sync_items.add("snippets")
 
         # Add themes if enabled
         if self.config.sync.themes:
-            sync_items.add("themes")
+            if (self.source.settings_dir / "themes").exists():
+                sync_items.add("themes")
 
         # Override with user-specified items if provided
         if items:
@@ -147,97 +158,41 @@ class SyncManager:
 
         Args:
             item: Name of the item to sync
+
+        Raises:
+            SyncError: If there is an error during sync
+            ValidationError: If JSON validation fails
         """
-        source_path = self.source.vault_path / ".obsidian" / item
-        target_path = self.target.vault_path / ".obsidian" / item
+        source_path = self.source.settings_dir / item
+        target_path = self.target.settings_dir / item
 
         if not source_path.exists():
-            logger.warning(f"Source item does not exist: {item}")
-            return
+            raise SyncError(f"Source item does not exist: {item}", source=self.source.vault_path, target=self.target.vault_path)
 
-        # Handle directories (themes, snippets)
-        if source_path.is_dir():
-            self._sync_directory(source_path, target_path, item)
-        else:
-            self._sync_file(source_path, target_path, item)
-
-    def _sync_directory(
-        self,
-        source_path: Path,
-        target_path: Path,
-        item: str
-    ) -> None:
-        """Sync a directory of settings (themes, snippets).
-
-        Args:
-            source_path: Path to source directory
-            target_path: Path to target directory
-            item: Name of the directory being synced
-        """
         try:
-            if self.dry_run:
-                logger.info(f"Would sync directory: {item}")
-                return
+            # Validate JSON files
+            if item.endswith('.json'):
+                with open(source_path) as f:
+                    try:
+                        json.load(f)
+                    except json.JSONDecodeError as e:
+                        raise ValidationError(f"Invalid JSON in {item}", file_path=source_path) from e
 
-            # Remove existing directory if it exists
-            if target_path.exists():
-                shutil.rmtree(target_path)
-
-            # Copy directory
-            shutil.copytree(source_path, target_path)
-            logger.info(f"Synced directory: {item}")
+            # Copy file or directory
+            if not self.config.sync.dry_run:
+                if source_path.is_file():
+                    shutil.copy2(source_path, target_path)
+                    logger.info(f"Synced file: {item}")
+                else:
+                    shutil.copytree(source_path, target_path, dirs_exist_ok=True)
+                    logger.info(f"Synced directory: {item}")
+            else:
+                logger.info(f"Would sync: {item} (dry run)")
 
         except Exception as e:
-            handle_file_operation_error(e, "syncing directory", target_path)
-            raise SyncError(
-                f"Failed to sync directory: {item}",
-                str(e)
-            ) from e
-
-    def _sync_file(self, source_path: Path, target_path: Path, item: str) -> None:
-        """Sync a settings file.
-
-        Args:
-            source_path: Path to source file
-            target_path: Path to target file
-            item: Name of the file being synced
-        """
-        try:
-            if self.dry_run:
-                logger.info(f"Would sync file: {item}")
-                return
-
-            # Validate source file
-            if not self.source.validate_json_file(source_path):
-                raise ValidationError(
-                    f"Invalid source settings file: {item}",
-                    f"Path: {source_path}"
-                )
-
-            # Copy file
-            shutil.copy2(source_path, target_path)
-
-            # Validate target file
-            if not self.target.validate_json_file(target_path):
-                # Restore from backup if validation fails
-                if not self.backup_mgr.restore_backup(item):
-                    raise BackupError(
-                        "Failed to restore file from backup",
-                        f"File: {item}"
-                    )
-                raise ValidationError(
-                    f"Invalid target settings file after sync: {item}",
-                    f"Path: {target_path}"
-                )
-
-            logger.info(f"Synced file: {item}")
-
-        except Exception as e:
-            handle_file_operation_error(e, "syncing file", target_path)
-            raise SyncError(
-                f"Failed to sync file: {item}",
-                str(e)
-            ) from e
+            if isinstance(e, (SyncError, ValidationError)):
+                raise
+            raise SyncError(f"Failed to sync {item}: {str(e)}", source=self.source.vault_path, target=self.target.vault_path) from e
 
     def list_backups(self) -> List[str]:
         """List available backups for the target vault.
