@@ -75,4 +75,4 @@ This directory contains the core functionality of the ObsyncIt tool.
 4. **Testing**
    - Write unit tests for new functionality
    - Update existing tests when modifying code
-   - Ensure test coverage 
+   - Ensure test coverage

@@ -2,7 +2,7 @@
 JSON schemas for Obsidian settings files.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Schema for appearance.json
 APPEARANCE_SCHEMA: Dict[str, Any] = {
@@ -96,4 +96,4 @@ SCHEMA_MAP: Dict[str, Dict[str, Any]] = {
     "core-plugins.json": CORE_PLUGINS_SCHEMA,
     "community-plugins.json": COMMUNITY_PLUGINS_SCHEMA,
     "hotkeys.json": HOTKEYS_SCHEMA
-} 
+}

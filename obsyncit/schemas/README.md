@@ -67,4 +67,4 @@ When modifying schemas:
 1. Follow JSON Schema best practices
 2. Update corresponding tests
 3. Document changes
-4. Validate against real settings files 
+4. Validate against real settings files

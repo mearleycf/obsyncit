@@ -65,7 +65,8 @@ pytest tests/test_json_validation.py
 ## Test Dependencies
 
 Required packages for testing (installed with `pip install -e ".[dev]"`):
+
 - pytest
 - pytest-cov
 - pytest-mock
-- pytest-asyncio 
+- pytest-asyncio

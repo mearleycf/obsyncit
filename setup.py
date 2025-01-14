@@ -19,6 +19,8 @@ setup(
             "pytest-mock>=3.12.0",
             "pytest-asyncio>=0.23.5",
             "pre-commit>=3.6.0",
+            "pylint>=3.0.3",
+            "ruff>=0.1.14",
         ],
     },
     entry_points={

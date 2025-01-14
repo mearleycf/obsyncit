@@ -27,12 +27,14 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
 ## Installation
 
 1. Clone this repository:
+
    ```bash
    git clone https://github.com/yourusername/obsyncit.git
    cd obsyncit
    ```
 
 2. Create a virtual environment (recommended):
+
    ```bash
    python -m venv .venv
    source .venv/bin/activate  # On Unix/macOS
@@ -41,11 +43,13 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
    ```
 
 3. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
 
 4. For development:
+
    ```bash
    pip install -e ".[dev]"
    ```
@@ -75,6 +79,7 @@ python -m obsyncit.obsync_tui
 ```
 
 The TUI provides an interactive interface for:
+
 - Selecting source and target vaults
 - Previewing sync operations
 - Performing dry runs
@@ -165,4 +170,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request 
+5. Open a Pull Request
