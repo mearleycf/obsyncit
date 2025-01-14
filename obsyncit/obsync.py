@@ -20,8 +20,8 @@ from datetime import datetime
 from jsonschema import validate, ValidationError
 from pydantic import ValidationError as PydanticValidationError
 
-from .schemas import Config, SCHEMA_MAP
-from .backup import BackupManager
+from obsyncit.schemas import Config, SCHEMA_MAP
+from obsyncit.backup import BackupManager
 
 
 def setup_logging(config: Config) -> None:

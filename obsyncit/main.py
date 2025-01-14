@@ -14,10 +14,10 @@ import tomli
 from loguru import logger
 from pydantic import ValidationError as PydanticValidationError
 
-from schemas import Config
-from logger import setup_logging
-from sync import SyncManager
-from errors import (
+from obsyncit.schemas import Config
+from obsyncit.logger import setup_logging
+from obsyncit.sync import SyncManager
+from obsyncit.errors import (
     ObsyncError,
     VaultError,
     ConfigError,

@@ -7,7 +7,7 @@ from rich.panel import Panel
 from rich.table import Table
 from pathlib import Path
 import sys
-from obsync import ObsidianSettingsSync
+from obsyncit.obsync import ObsidianSettingsSync
 import logging
 from rich.logging import RichHandler
 

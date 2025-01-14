@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import List, Optional, Dict, Tuple
 from loguru import logger
 
-from schemas import Config
-from vault import VaultManager
-from backup import BackupManager
-from errors import (
+from obsyncit.schemas import Config
+from obsyncit.vault import VaultManager
+from obsyncit.backup import BackupManager
+from obsyncit.errors import (
     SyncError,
     VaultError,
     BackupError,

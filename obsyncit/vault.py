@@ -1,23 +1,17 @@
 """
-Obsidian vault management module.
+Vault management functionality.
 
-This module provides functionality for interacting with Obsidian vaults,
-including path validation and JSON settings validation.
+This module handles operations related to Obsidian vaults, including
+validation and file operations.
 """
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 from loguru import logger
-from jsonschema import validate, ValidationError as JsonSchemaValidationError
 
-from schemas import SCHEMA_MAP
-from errors import (
-    VaultError,
-    ValidationError,
-    handle_file_operation_error,
-    handle_json_error
-)
+from obsyncit.schemas import SCHEMA_MAP
+from obsyncit.errors import VaultError, ValidationError
 
 
 class VaultManager:
