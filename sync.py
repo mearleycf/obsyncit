@@ -15,6 +15,13 @@ from loguru import logger
 from schemas import Config
 from vault import VaultManager
 from backup import BackupManager
+from errors import (
+    SyncError,
+    VaultError,
+    BackupError,
+    ValidationError,
+    handle_file_operation_error
+)
 
 
 class SyncPreview:
@@ -85,6 +92,10 @@ class SyncManager:
             target_vault: Path to the target Obsidian vault
             config: Configuration object
             dry_run: If True, only simulate the sync operation
+            
+        Raises:
+            VaultError: If there are issues with vault paths
+            ConfigError: If configuration is invalid
         """
         self.config = config
         self.dry_run = dry_run
@@ -108,9 +119,17 @@ class SyncManager:
         Validate that both source and target vaults exist and are valid.
         
         Returns:
-            bool: True if both vaults are valid, False otherwise
+            bool: True if both vaults are valid
+            
+        Raises:
+            VaultError: If validation fails for either vault
         """
-        return self.source.validate_vault() and self.target.validate_vault()
+        try:
+            self.source.validate_vault()
+            self.target.validate_vault()
+            return True
+        except VaultError:
+            raise
 
     def list_backups(self) -> List[Path]:
         """
@@ -118,8 +137,18 @@ class SyncManager:
         
         Returns:
             List[Path]: List of backup directory paths, sorted by creation time
+            
+        Raises:
+            BackupError: If there are issues accessing backups
         """
-        return self.backup_manager.list_backups()
+        try:
+            return self.backup_manager.list_backups()
+        except Exception as e:
+            raise BackupError(
+                "Failed to list backups",
+                self.target.vault_path,
+                str(e)
+            )
 
     def _generate_file_diff(self, source_file: Path, target_file: Path) -> List[str]:
         """
@@ -131,6 +160,9 @@ class SyncManager:
             
         Returns:
             List[str]: List of diff lines
+            
+        Raises:
+            SyncError: If there are issues generating the diff
         """
         try:
             if not source_file.exists():
@@ -149,8 +181,13 @@ class SyncManager:
             
             return diff
         except Exception as e:
-            logger.debug(f"Could not generate diff: {str(e)}")
-            return []
+            handle_file_operation_error(e, "generating diff for", source_file)
+            raise SyncError(
+                "Failed to generate file diff",
+                source=source_file,
+                target=target_file,
+                details=str(e)
+            )
 
     def _preview_sync(self, selected_items: Optional[List[str]] = None) -> SyncPreview:
         """
@@ -161,48 +198,59 @@ class SyncManager:
             
         Returns:
             SyncPreview: Preview of sync operations
+            
+        Raises:
+            SyncError: If there are issues generating the preview
         """
         preview = SyncPreview()
         
-        # Determine what to sync
-        files_to_sync = [f for f in self.config.sync.core_settings_files 
-                       if not selected_items or f in selected_items]
-        dirs_to_sync = [d for d in self.config.sync.settings_dirs 
-                      if not selected_items or d in selected_items]
+        try:
+            # Determine what to sync
+            files_to_sync = [f for f in self.config.sync.core_settings_files 
+                          if not selected_items or f in selected_items]
+            dirs_to_sync = [d for d in self.config.sync.settings_dirs 
+                         if not selected_items or d in selected_items]
 
-        # Check files
-        for settings_file in files_to_sync:
-            source_file = self.source.settings_path / settings_file
-            target_file = self.target.settings_path / settings_file
-            
-            if source_file.exists():
-                if not target_file.exists():
-                    preview.files_to_add.append(settings_file)
-                else:
-                    diff = self._generate_file_diff(source_file, target_file)
-                    if diff:
-                        preview.files_to_update.append((settings_file, diff))
-            elif target_file.exists():
-                preview.files_to_remove.append(settings_file)
-
-        # Check directories
-        for dir_name in dirs_to_sync:
-            source_dir = self.source.settings_path / dir_name
-            target_dir = self.target.settings_path / dir_name
-            
-            if source_dir.exists():
-                if not target_dir.exists():
-                    preview.dirs_to_add.append(dir_name)
-                else:
-                    # Check if directory contents differ
-                    source_files = set(f.relative_to(source_dir) for f in source_dir.rglob("*"))
-                    target_files = set(f.relative_to(target_dir) for f in target_dir.rglob("*"))
-                    if source_files != target_files:
-                        preview.dirs_to_update.append(dir_name)
-            elif target_dir.exists():
-                preview.dirs_to_remove.append(dir_name)
+            # Check files
+            for settings_file in files_to_sync:
+                source_file = self.source.settings_path / settings_file
+                target_file = self.target.settings_path / settings_file
                 
-        return preview
+                if source_file.exists():
+                    if not target_file.exists():
+                        preview.files_to_add.append(settings_file)
+                    else:
+                        diff = self._generate_file_diff(source_file, target_file)
+                        if diff:
+                            preview.files_to_update.append((settings_file, diff))
+                elif target_file.exists():
+                    preview.files_to_remove.append(settings_file)
+
+            # Check directories
+            for dir_name in dirs_to_sync:
+                source_dir = self.source.settings_path / dir_name
+                target_dir = self.target.settings_path / dir_name
+                
+                if source_dir.exists():
+                    if not target_dir.exists():
+                        preview.dirs_to_add.append(dir_name)
+                    else:
+                        # Check if directory contents differ
+                        source_files = set(f.relative_to(source_dir) for f in source_dir.rglob("*"))
+                        target_files = set(f.relative_to(target_dir) for f in target_dir.rglob("*"))
+                        if source_files != target_files:
+                            preview.dirs_to_update.append(dir_name)
+                elif target_dir.exists():
+                    preview.dirs_to_remove.append(dir_name)
+                    
+            return preview
+        except Exception as e:
+            raise SyncError(
+                "Failed to generate sync preview",
+                source=self.source.settings_path,
+                target=self.target.settings_path,
+                details=str(e)
+            )
 
     def restore_backup(self, backup_path: Optional[Path] = None) -> bool:
         """
@@ -212,13 +260,15 @@ class SyncManager:
             backup_path: Optional specific backup to restore. If None, uses most recent.
             
         Returns:
-            bool: True if restore was successful, False otherwise
+            bool: True if restore was successful
+            
+        Raises:
+            VaultError: If there are issues with the vault
+            BackupError: If there are issues with the backup
         """
         try:
             # Validate target vault before restore
-            if not self.target.validate_vault():
-                logger.error("Target vault validation failed")
-                return False
+            self.target.validate_vault()
             
             if self.dry_run:
                 logger.info("=== Restore Preview ===")
@@ -233,35 +283,50 @@ class SyncManager:
             logger.info("Creating backup of current state before restore...")
             pre_restore_backup = self.backup_manager.create_backup()
             if pre_restore_backup is None:
-                logger.error("Failed to create pre-restore backup, aborting restore")
-                return False
+                raise BackupError(
+                    "Failed to create pre-restore backup",
+                    details="Backup creation returned None"
+                )
             logger.info(f"Pre-restore backup created at: {pre_restore_backup}")
             
             # Perform restore
             logger.info(f"Restoring from {'latest backup' if backup_path is None else backup_path}...")
             if not self.backup_manager.restore_backup(backup_path):
-                return False
+                raise BackupError(
+                    "Failed to restore from backup",
+                    backup_path
+                )
             
             logger.success("Settings restore completed successfully!")
             return True
             
+        except (VaultError, BackupError):
+            raise
         except Exception as e:
-            logger.error(f"Error during restore: {str(e)}")
-            return False
+            raise BackupError(
+                "Error during restore operation",
+                backup_path,
+                str(e)
+            )
 
     def sync_settings(self, selected_items: Optional[List[str]] = None) -> bool:
         """
         Synchronize settings from source to target vault.
         
         Args:
-            selected_items: Optional list of specific settings to sync (files or directories)
+            selected_items: Optional list of specific settings to sync
             
         Returns:
-            bool: True if sync was successful, False otherwise
+            bool: True if sync was successful
+            
+        Raises:
+            VaultError: If there are issues with the vaults
+            BackupError: If there are issues with backups
+            SyncError: If there are issues during sync
+            ValidationError: If there are issues with file validation
         """
         try:
-            if not self.validate_vaults():
-                return False
+            self.validate_vaults()
 
             # In dry-run mode, show preview and return
             if self.dry_run:
@@ -272,8 +337,10 @@ class SyncManager:
             # Create backup
             backup_path = self.backup_manager.create_backup()
             if backup_path is None:
-                logger.error("Failed to create backup, aborting sync")
-                return False
+                raise BackupError(
+                    "Failed to create backup before sync",
+                    details="Backup creation returned None"
+                )
 
             # Create target .obsidian directory if it doesn't exist
             self.target.settings_path.mkdir(exist_ok=True)
@@ -290,10 +357,19 @@ class SyncManager:
                 target_file = self.target.settings_path / settings_file
                 
                 if source_file.exists():
-                    if not self.source.validate_json_file(source_file):
-                        continue
-                    shutil.copy2(source_file, target_file)
-                    logger.info(f"Synced settings file: {settings_file}")
+                    try:
+                        if not self.source.validate_json_file(source_file):
+                            continue
+                        shutil.copy2(source_file, target_file)
+                        logger.info(f"Synced settings file: {settings_file}")
+                    except Exception as e:
+                        handle_file_operation_error(e, "copying", source_file)
+                        raise SyncError(
+                            f"Failed to sync file: {settings_file}",
+                            source=source_file,
+                            target=target_file,
+                            details=str(e)
+                        )
 
             # Sync settings directories
             for dir_name in dirs_to_sync:
@@ -301,11 +377,23 @@ class SyncManager:
                 target_dir = self.target.settings_path / dir_name
                 
                 if source_dir.exists():
-                    shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
-                    logger.info(f"Synced directory: {dir_name}")
+                    try:
+                        shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
+                        logger.info(f"Synced directory: {dir_name}")
+                    except Exception as e:
+                        handle_file_operation_error(e, "copying directory", source_dir)
+                        raise SyncError(
+                            f"Failed to sync directory: {dir_name}",
+                            source=source_dir,
+                            target=target_dir,
+                            details=str(e)
+                        )
 
             # Cleanup old backups
-            self.backup_manager.cleanup_old_backups()
+            try:
+                self.backup_manager.cleanup_old_backups()
+            except Exception as e:
+                logger.warning(f"Failed to clean up old backups: {str(e)}")
 
             logger.success("Settings sync completed successfully!")
             if backup_path:
@@ -313,9 +401,12 @@ class SyncManager:
             
             return True
             
-        except PermissionError as e:
-            logger.error(f"Permission denied during sync: {str(e)}")
-            return False
+        except (VaultError, BackupError, ValidationError, SyncError):
+            raise
         except Exception as e:
-            logger.error(f"Error during sync: {str(e)}")
-            return False 
+            raise SyncError(
+                "Unexpected error during sync",
+                source=self.source.settings_path,
+                target=self.target.settings_path,
+                details=str(e)
+            ) 

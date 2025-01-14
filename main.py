@@ -7,6 +7,7 @@ This module serves as the entry point for the Obsidian settings sync tool,
 handling command-line arguments and orchestrating the sync process.
 """
 
+import sys
 import argparse
 from pathlib import Path
 import tomli
@@ -16,6 +17,54 @@ from pydantic import ValidationError as PydanticValidationError
 from schemas import Config
 from logger import setup_logging
 from sync import SyncManager
+from errors import (
+    ObsyncError,
+    VaultError,
+    ConfigError,
+    BackupError,
+    SyncError,
+    ValidationError
+)
+
+
+def handle_error(error: Exception) -> int:
+    """
+    Handle different types of errors with appropriate messages and exit codes.
+    
+    Args:
+        error: The exception to handle
+        
+    Returns:
+        int: Exit code to use (0 for success, non-zero for errors)
+    """
+    if isinstance(error, VaultError):
+        logger.error("Vault Error:")
+        logger.error(error.full_message)
+        return 2
+    elif isinstance(error, ConfigError):
+        logger.error("Configuration Error:")
+        logger.error(error.full_message)
+        return 3
+    elif isinstance(error, ValidationError):
+        logger.error("Validation Error:")
+        logger.error(error.full_message)
+        return 4
+    elif isinstance(error, BackupError):
+        logger.error("Backup Error:")
+        logger.error(error.full_message)
+        return 5
+    elif isinstance(error, SyncError):
+        logger.error("Sync Error:")
+        logger.error(error.full_message)
+        return 6
+    elif isinstance(error, ObsyncError):
+        logger.error("Error:")
+        logger.error(error.full_message)
+        return 1
+    else:
+        logger.error(f"Unexpected error: {str(error)}")
+        logger.debug("", exc_info=True)  # Log full traceback at debug level
+        return 1
 
 
 def main() -> None:
@@ -64,17 +113,27 @@ def main() -> None:
         # Load and validate configuration
         config_path = Path(args.config)
         if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            raise ConfigError(
+                "Configuration file not found",
+                f"Path: {config_path}"
+            )
             
         try:
             with open(config_path, 'rb') as f:
                 config_data = tomli.load(f)
             config = Config.model_validate(config_data)
         except PydanticValidationError as e:
-            logger.error("Invalid configuration:")
-            for error in e.errors():
-                logger.error(f"  - {' -> '.join(str(loc) for loc in error['loc'])}: {error['msg']}")
-            raise
+            errors = [f"{' -> '.join(str(loc) for loc in error['loc'])}: {error['msg']}"
+                     for error in e.errors()]
+            raise ConfigError(
+                "Invalid configuration",
+                "\n".join(errors)
+            )
+        except Exception as e:
+            raise ConfigError(
+                "Error reading configuration",
+                str(e)
+            )
             
         # Initialize logging
         setup_logging(config)
@@ -110,8 +169,7 @@ def main() -> None:
             raise RuntimeError("Sync operation failed")
             
     except Exception as e:
-        logger.error(f"Error: {str(e)}")
-        raise SystemExit(1)
+        sys.exit(handle_error(e))
 
 
 if __name__ == "__main__":
