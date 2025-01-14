@@ -33,6 +33,12 @@ ENV/
 *.swp
 *.swo
 
+# ObsyncIt specific
+.logs/
+logs/
+.backups/
+config.toml
+
 # Project specific
 .mise.toml
 .python-version
