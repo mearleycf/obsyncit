@@ -54,6 +54,52 @@ class SyncManager:
         """
         return self.source.validate_vault() and self.target.validate_vault()
 
+    def list_backups(self) -> List[Path]:
+        """
+        List all available backups for the target vault.
+        
+        Returns:
+            List[Path]: List of backup directory paths, sorted by creation time
+        """
+        return self.backup_manager.list_backups()
+
+    def restore_backup(self, backup_path: Optional[Path] = None) -> bool:
+        """
+        Restore settings from a backup.
+        
+        Args:
+            backup_path: Optional specific backup to restore. If None, uses most recent.
+            
+        Returns:
+            bool: True if restore was successful, False otherwise
+        """
+        try:
+            # Validate target vault before restore
+            if not self.target.validate_vault():
+                logger.error("Target vault validation failed")
+                return False
+            
+            # Create a backup of current state before restore
+            logger.info("Creating backup of current state before restore...")
+            if not self.dry_run:
+                pre_restore_backup = self.backup_manager.create_backup()
+                if pre_restore_backup is None:
+                    logger.error("Failed to create pre-restore backup, aborting restore")
+                    return False
+                logger.info(f"Pre-restore backup created at: {pre_restore_backup}")
+            
+            # Perform restore
+            logger.info(f"Restoring from {'latest backup' if backup_path is None else backup_path}...")
+            if not self.backup_manager.restore_backup(backup_path):
+                return False
+            
+            logger.success("Settings restore completed successfully!")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error during restore: {str(e)}")
+            return False
+
     def sync_settings(self, selected_items: Optional[List[str]] = None) -> bool:
         """
         Synchronize settings from source to target vault.
