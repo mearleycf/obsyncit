@@ -2,7 +2,9 @@
 ObsyncIt - Obsidian Settings Sync Tool
 """
 
-from .obsync import ObsidianSettingsSync
-from .schemas import SCHEMA_MAP
+from obsyncit.sync import SyncManager as ObsidianSettingsSync
+from obsyncit.schemas import SCHEMA_MAP
 
-__version__ = "0.1.0" 
+__version__ = "0.1.0"
+
+__all__ = ["ObsidianSettingsSync", "SCHEMA_MAP"]

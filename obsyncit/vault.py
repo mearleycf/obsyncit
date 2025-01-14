@@ -1,168 +1,154 @@
 """
-Obsidian vault management module.
+Vault Manager - Handles Obsidian vault operations.
 
-This module provides functionality for interacting with Obsidian vaults,
-including path validation and JSON settings validation.
+This module provides functionality for managing Obsidian vaults,
+including validation and file operations.
 """
 
 import json
 from pathlib import Path
-from typing import Optional
-from loguru import logger
-from jsonschema import validate, ValidationError as JsonSchemaValidationError
+from typing import Optional, Set, Union
 
-from schemas import SCHEMA_MAP
-from errors import (
+from loguru import logger
+
+from obsyncit.errors import (
     VaultError,
-    ValidationError,
     handle_file_operation_error,
     handle_json_error
 )
 
 
 class VaultManager:
-    """Handles operations specific to Obsidian vaults."""
-    
-    def __init__(self, vault_path: str | Path, settings_dir: str = ".obsidian"):
-        """
-        Initialize the vault manager.
-        
+    """Manages operations on an Obsidian vault."""
+
+    def __init__(self, vault_path: Union[str, Path]) -> None:
+        """Initialize the vault manager.
+
         Args:
             vault_path: Path to the Obsidian vault
-            settings_dir: Name of the settings directory (default: .obsidian)
-            
-        Raises:
-            VaultError: If the vault path is invalid or inaccessible
         """
-        try:
-            self.vault_path = Path(vault_path).expanduser().resolve()
-            self.settings_dir = settings_dir
-            self.settings_path = self.vault_path / self.settings_dir
-        except Exception as e:
-            raise VaultError("Failed to initialize vault manager", vault_path, str(e))
-    
+        self.vault_path = Path(vault_path).resolve()
+        self.settings_dir = self.vault_path / ".obsidian"
+
     def validate_vault(self) -> bool:
-        """
-        Validate that the path exists and is an Obsidian vault.
-        
+        """Validate that this is a valid Obsidian vault.
+
         Returns:
-            bool: True if path is valid, False otherwise
-            
-        Raises:
-            VaultError: If validation fails due to permissions or other errors
+            bool: True if the vault is valid
         """
         try:
+            # Check that vault directory exists
             if not self.vault_path.exists():
                 raise VaultError(
-                    "Vault does not exist",
-                    self.vault_path
+                    "Vault directory does not exist",
+                    f"Path: {self.vault_path}"
                 )
-            
-            if not self.settings_path.exists():
+
+            # Check that vault directory is readable
+            if not self.vault_path.is_dir():
                 raise VaultError(
-                    f"Vault has no {self.settings_dir} directory",
-                    self.vault_path,
-                    f"Expected settings at: {self.settings_path}"
+                    "Vault path is not a directory",
+                    f"Path: {self.vault_path}"
                 )
-                
+
+            # Check that .obsidian directory exists
+            if not self.settings_dir.exists():
+                raise VaultError(
+                    "No .obsidian directory found",
+                    f"Path: {self.settings_dir}"
+                )
+
+            # Check that .obsidian directory is readable
+            if not self.settings_dir.is_dir():
+                raise VaultError(
+                    ".obsidian path is not a directory",
+                    f"Path: {self.settings_dir}"
+                )
+
             return True
+
         except VaultError:
             raise
-        except PermissionError as e:
-            raise VaultError(
-                "Permission denied accessing vault",
-                self.vault_path,
-                str(e)
-            )
         except Exception as e:
-            raise VaultError(
-                "Error validating vault",
-                self.vault_path,
-                str(e)
-            )
+            handle_file_operation_error(e, "validating vault", self.vault_path)
+            return False
 
     def validate_json_file(self, file_path: Path) -> bool:
-        """
-        Validate that a file contains valid JSON and matches its schema.
-        
+        """Validate that a file contains valid JSON.
+
         Args:
-            file_path: Path to the JSON file to validate
-            
+            file_path: Path to the file to validate
+
         Returns:
-            bool: True if JSON is valid and matches schema, False otherwise
-            
-        Raises:
-            ValidationError: If the file fails JSON or schema validation
+            bool: True if the file contains valid JSON
         """
         try:
             if not file_path.exists():
-                return True  # Skip validation for non-existent files
-                
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-            except json.JSONDecodeError as e:
-                handle_json_error(e, file_path)
-                raise ValidationError(
-                    "Invalid JSON format",
-                    file_path,
-                    [f"Error at line {e.lineno}, column {e.colno}: {e.msg}"]
-                )
-                
-            # Get schema for this file type
-            file_name = file_path.name
-            if file_name in SCHEMA_MAP:
-                try:
-                    validate(instance=data, schema=SCHEMA_MAP[file_name])
-                except JsonSchemaValidationError as e:
-                    schema_errors = [
-                        f"Path: {' -> '.join(str(p) for p in e.path)}",
-                        f"Error: {e.message}",
-                        f"Schema path: {' -> '.join(str(p) for p in e.schema_path)}"
-                    ]
-                    raise ValidationError(
-                        "Schema validation failed",
-                        file_path,
-                        schema_errors
-                    )
-                    
-            return True
-        except (ValidationError, VaultError):
-            raise
-        except PermissionError as e:
-            handle_file_operation_error(e, "reading", file_path)
-            raise ValidationError(
-                "Permission denied reading file",
-                file_path,
-                [str(e)]
-            )
-        except Exception as e:
-            handle_file_operation_error(e, "validating", file_path)
-            raise ValidationError(
-                "Error validating file",
-                file_path,
-                [str(e)]
-            )
+                logger.warning(f"File does not exist: {file_path}")
+                return False
 
-    def get_settings_file(self, filename: str) -> Optional[Path]:
-        """
-        Get the path to a settings file in the vault.
-        
-        Args:
-            filename: Name of the settings file
-            
+            with open(file_path, encoding='utf-8') as f:
+                json.load(f)
+            return True
+
+        except json.JSONDecodeError as e:
+            handle_json_error(e, file_path)
+            return False
+        except Exception as e:
+            handle_file_operation_error(e, "validating JSON file", file_path)
+            return False
+
+    def get_settings_files(self) -> Set[str]:
+        """Get a list of settings files in the vault.
+
         Returns:
-            Optional[Path]: Path to the settings file if it exists, None otherwise
-            
-        Raises:
-            VaultError: If there are issues accessing the settings directory
+            Set[str]: Set of settings file names
         """
         try:
-            file_path = self.settings_path / filename
-            return file_path if file_path.exists() else None
+            if not self.settings_dir.exists():
+                return set()
+
+            return {
+                f.name for f in self.settings_dir.glob("*.json")
+                if f.is_file()
+            }
+
         except Exception as e:
-            raise VaultError(
-                f"Error accessing settings file: {filename}",
-                self.vault_path,
-                str(e)
-            ) 
+            handle_file_operation_error(e, "listing settings files", self.settings_dir)
+            return set()
+
+    def get_settings_dirs(self) -> Set[str]:
+        """Get a list of settings directories in the vault.
+
+        Returns:
+            Set[str]: Set of settings directory names
+        """
+        try:
+            if not self.settings_dir.exists():
+                return set()
+
+            return {
+                d.name for d in self.settings_dir.iterdir()
+                if d.is_dir() and not d.name.startswith(".")
+            }
+
+        except Exception as e:
+            handle_file_operation_error(e, "listing settings directories", self.settings_dir)
+            return set()
+
+    def get_file_path(self, file_name: str) -> Optional[Path]:
+        """Get the full path to a settings file.
+
+        Args:
+            file_name: Name of the settings file
+
+        Returns:
+            Optional[Path]: Full path to the file, or None if not found
+        """
+        try:
+            file_path = self.settings_dir / file_name
+            return file_path if file_path.exists() else None
+
+        except Exception as e:
+            handle_file_operation_error(e, "getting file path", file_name)
+            return None

@@ -1,0 +1,57 @@
+[MASTER]
+# Python version
+py-version = 3.8
+
+# Add any Python module names where missing imports should be ignored
+ignored-modules=
+
+# Files or directories to be skipped. They should be base names, not paths
+ignore=CVS,.git,__pycache__
+
+[MESSAGES CONTROL]
+# Disable specific warnings
+disable=
+    C0111,  # missing-docstring (handled by other tools)
+    C0103,  # invalid-name
+    R0903,  # too-few-public-methods
+    W0718,  # broad-exception-caught (we want to catch all exceptions in some cases)
+    C0301,  # line-too-long (handled by black/ruff)
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=100
+
+# Maximum number of lines in a module
+max-module-lines=1000
+
+# String used as indentation unit
+indent-string='    '
+
+[BASIC]
+# Regular expression which should only match function or class names
+function-rgx=[a-z_][a-z0-9_]{2,50}$
+class-rgx=[A-Z_][a-zA-Z0-9_]+$
+argument-rgx=[a-z_][a-z0-9_]{2,30}$
+variable-rgx=[a-z_][a-z0-9_]{2,30}$
+
+# Good variable names which should always be accepted
+good-names=i,j,k,ex,Run,_,id,f,e
+
+[SIMILARITIES]
+# Minimum lines number of a similarity
+min-similarity-lines=7
+
+# Ignore imports when computing similarities
+ignore-imports=yes
+
+[TYPECHECK]
+# List of module names for which member attributes should not be checked
+ignored-modules=numpy,torch,tensorflow,cv2
+
+[MISCELLANEOUS]
+# List of note tags to take into consideration
+notes=FIXME,TODO,XXX,HACK
+
+[DESIGN]
+# Maximum number of return statements allowed in a function
+max-returns=8 

@@ -1,14 +1,8 @@
 """
-Schema package for configuration and settings validation.
+JSON schema validation for Obsidian settings files.
 """
 
-from .config import Config, GeneralConfig, LoggingConfig, SyncConfig
-from .obsidian import SCHEMA_MAP
+from obsyncit.schemas.config import Config
+from obsyncit.schemas.obsidian import SCHEMA_MAP
 
-__all__ = [
-    'Config',
-    'GeneralConfig',
-    'LoggingConfig',
-    'SyncConfig',
-    'SCHEMA_MAP'
-] 
+__all__ = ['Config', 'SCHEMA_MAP']
