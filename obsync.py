@@ -175,7 +175,19 @@ class ObsidianSettingsSync:
                 return True  # Skip validation for non-existent files
                 
             with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError as e:
+                    # Get the problematic line for context
+                    with open(file_path, 'r', encoding='utf-8') as f_context:
+                        lines = f_context.readlines()
+                        error_line = lines[e.lineno - 1] if e.lineno <= len(lines) else "<<line not available>>"
+                        
+                    logger.warning(f"Invalid JSON in {file_path}:")
+                    logger.warning(f"  Line {e.lineno}, Column {e.colno}: {e.msg}")
+                    logger.debug(f"  Context: {error_line.strip()}")
+                    logger.debug(f"  Position: {' ' * (e.colno-1)}^")
+                    return False
                 
             # Get schema for this file type
             file_name = file_path.name
@@ -185,19 +197,37 @@ class ObsidianSettingsSync:
                 except ValidationError as e:
                     logger.warning(f"Schema validation failed for {file_path}:")
                     logger.warning(f"  - {e.message}")
+                    
+                    # Get the actual value that failed validation
+                    actual_value = e.instance
+                    if isinstance(actual_value, (dict, list)):
+                        actual_value = json.dumps(actual_value, indent=2)
+                    
+                    # Get the expected schema for this part
+                    schema_part = e.schema
+                    if isinstance(schema_part, dict):
+                        schema_part = json.dumps(schema_part, indent=2)
+                    
                     logger.debug(f"  - Path: {' -> '.join(str(p) for p in e.path)}")
                     logger.debug(f"  - Schema path: {' -> '.join(str(p) for p in e.schema_path)}")
+                    logger.debug(f"  - Expected schema: {schema_part}")
+                    logger.debug(f"  - Actual value: {actual_value}")
                     return False
                     
             return True
-        except json.JSONDecodeError as e:
-            logger.warning(f"Invalid JSON in {file_path}: {str(e)}")
-            return False
         except PermissionError as e:
             logger.error(f"Permission denied reading {file_path}: {str(e)}")
             return False
+        except UnicodeDecodeError as e:
+            logger.warning(f"Invalid file encoding in {file_path}: {str(e)}")
+            logger.debug("File must be encoded in UTF-8")
+            return False
+        except OSError as e:
+            logger.error(f"File system error reading {file_path}: {str(e)}")
+            return False
         except Exception as e:
-            logger.error(f"Error reading {file_path}: {str(e)}")
+            logger.error(f"Unexpected error reading {file_path}: {str(e)}")
+            logger.debug(f"Error type: {type(e).__name__}")
             return False
 
     def sync_settings(self, selected_items: Optional[List[str]] = None) -> bool:
