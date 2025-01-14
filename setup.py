@@ -19,4 +19,9 @@ setup(
             "pytest-asyncio>=0.23.5",
         ],
     },
+    entry_points={
+        'console_scripts': [
+            'obsyncit=obsyncit.main:main',
+        ],
+    },
 ) 
