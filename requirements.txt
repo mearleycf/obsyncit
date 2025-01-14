@@ -3,3 +3,9 @@ loguru>=0.7.2
 tomli>=2.0.1
 pydantic>=2.6.1
 jsonschema>=4.21.1 
+
+# Testing dependencies
+pytest>=8.0.0
+pytest-cov>=4.1.0  # For code coverage reporting
+pytest-mock>=3.12.0  # For mocking
+pytest-asyncio>=0.23.5  # For async test support 
