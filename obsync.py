@@ -13,7 +13,7 @@ import shutil
 import json
 import argparse
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Dict, Any
 import tomli
 from loguru import logger
 from datetime import datetime
@@ -75,20 +75,8 @@ class ObsidianSettingsSync:
             PydanticValidationError: If config file has invalid structure
             tomli.TOMLDecodeError: If config file is invalid TOML
         """
-        config_path = Path(config_path)
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
-
         # Load and validate configuration
-        try:
-            with open(config_path, 'rb') as f:
-                config_data = tomli.load(f)
-            self.config = Config.model_validate(config_data)
-        except PydanticValidationError as e:
-            logger.error("Invalid configuration:")
-            for error in e.errors():
-                logger.error(f"  - {' -> '.join(str(loc) for loc in error['loc'])}: {error['msg']}")
-            raise
+        self.config = self._load_config(Path(config_path))
 
         # Initialize logging
         setup_logging(self.config)
@@ -110,7 +98,38 @@ class ObsidianSettingsSync:
             logger.error(f"Failed to initialize BackupManager: {e}")
             raise
 
-        logger.debug(f"Initialized sync from {self.source_vault} to {self.target_vault}")
+        logger.info(f"Initialized sync from {self.source_vault} to {self.target_vault}")
+
+    def _load_config(self, config_path: Path) -> Config:
+        """
+        Load and validate the configuration file.
+
+        Args:
+            config_path: Path to the TOML configuration file
+
+        Returns:
+            Config: Validated configuration object
+
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            PydanticValidationError: If config file has invalid structure
+            tomli.TOMLDecodeError: If config file is invalid TOML
+        """
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+        try:
+            with open(config_path, 'rb') as f:
+                config_data = tomli.load(f)
+            return Config.model_validate(config_data)
+        except PydanticValidationError as e:
+            logger.error("Invalid configuration structure:")
+            for error in e.errors():
+                logger.error(f"  - {' -> '.join(str(loc) for loc in error['loc'])}: {error['msg']}")
+            raise
+        except tomli.TOMLDecodeError as e:
+            logger.error(f"Invalid TOML format in configuration file: {e}")
+            raise
 
     def validate_paths(self) -> bool:
         """
@@ -121,16 +140,16 @@ class ObsidianSettingsSync:
         """
         try:
             if not self.source_vault.exists():
-                logger.error(f"Source vault does not exist: {self.source_vault}")
+                logger.warning(f"Source vault does not exist: {self.source_vault}")
                 return False
             
             if not self.target_vault.exists():
-                logger.error(f"Target vault does not exist: {self.target_vault}")
+                logger.warning(f"Target vault does not exist: {self.target_vault}")
                 return False
             
             source_settings = self.source_vault / self.config.general.settings_dir
             if not source_settings.exists():
-                logger.error(f"Source vault has no .obsidian directory: {source_settings}")
+                logger.warning(f"Source vault has no .obsidian directory: {source_settings}")
                 return False
                 
             return True
@@ -164,15 +183,15 @@ class ObsidianSettingsSync:
                 try:
                     validate(instance=data, schema=SCHEMA_MAP[file_name])
                 except ValidationError as e:
-                    logger.error(f"Schema validation failed for {file_path}:")
-                    logger.error(f"  - {e.message}")
+                    logger.warning(f"Schema validation failed for {file_path}:")
+                    logger.warning(f"  - {e.message}")
                     logger.debug(f"  - Path: {' -> '.join(str(p) for p in e.path)}")
                     logger.debug(f"  - Schema path: {' -> '.join(str(p) for p in e.schema_path)}")
                     return False
                     
             return True
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in {file_path}: {str(e)}")
+            logger.warning(f"Invalid JSON in {file_path}: {str(e)}")
             return False
         except PermissionError as e:
             logger.error(f"Permission denied reading {file_path}: {str(e)}")
@@ -246,7 +265,7 @@ class ObsidianSettingsSync:
                 logger.info("Cleaning up old backups...")
                 self.backup_manager.cleanup_old_backups()
 
-            logger.success("Settings sync completed successfully!")
+            logger.info("Settings sync completed successfully!")
             if backup_path:
                 logger.info(f"Backup of original settings available at: {backup_path}")
             
