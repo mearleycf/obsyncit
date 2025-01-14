@@ -13,6 +13,7 @@ from rich.table import Table
 
 from obsyncit import ObsidianSettingsSync
 from obsyncit.schemas import Config
+from obsyncit.errors import ObsyncError
 
 
 class ObsidianSyncTUI:
@@ -91,19 +92,24 @@ class ObsidianSyncTUI:
                 return
 
             config = Config()  # Use default config for TUI
+            config.sync.dry_run = dry_run  # Set dry run in config
             syncer = ObsidianSettingsSync(
                 source_vault=source_vault,
                 target_vault=target_vault,
-                config=config,
-                dry_run=dry_run
+                config=config
             )
 
-            with Progress(
+            success = False  # Initialize success flag
+            progress = Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
                 console=self.console
-            ) as progress:
-                progress.add_task(
+            )
+            
+            # Create progress bar but don't start it yet
+            task = None
+            with progress:
+                task = progress.add_task(
                     description="[green]Syncing vault settings...",
                     total=None
                 )
@@ -115,9 +121,17 @@ class ObsidianSyncTUI:
                 self.console.print("[red]✗ Sync failed![/red]")
 
         except KeyboardInterrupt:
+            print("DEBUG: KeyboardInterrupt caught")
             self.console.print("\n[yellow]Operation cancelled by user[/yellow]")
             sys.exit(0)
+        except ObsyncError as e:
+            print(f"DEBUG: ObsyncError caught: {type(e)}, {str(e)}")
+            # Handle ObsyncIt-specific errors with full message
+            self.console.print(f"[red]Error: {e.full_message}[/red]")
+            sys.exit(1)
         except Exception as e:
+            print(f"DEBUG: Other exception caught: {type(e)}, {str(e)}")
+            # Handle other unexpected errors
             self.console.print(f"[red]Error: {str(e)}[/red]")
             sys.exit(1)
 
