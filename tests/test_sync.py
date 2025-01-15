@@ -24,32 +24,31 @@ def source_vault(tmp_path):
     settings.mkdir(parents=True)
     
     # Create sample settings files
-    app_json = {
-        "promptDelete": False,
-        "alwaysUpdateLinks": True
-    }
-    appearance_json = {
-        "accentColor": "",
-        "theme": "obsidian"
-    }
-    hotkeys_json = {
-        "editor:toggle-bold": "Ctrl+B"
-    }
-    core_plugins_json = {
-        "file-explorer": True,
-        "global-search": True
-    }
-    community_plugins_json = {
-        "dataview": True,
-        "templater": True
+    settings_data = {
+        "app.json": {
+            "promptDelete": False,
+            "alwaysUpdateLinks": True
+        },
+        "appearance.json": {
+            "accentColor": "",
+            "theme": "obsidian"
+        },
+        "hotkeys.json": {
+            "editor:toggle-bold": "Ctrl+B"
+        },
+        "core-plugins.json": {
+            "file-explorer": True,
+            "global-search": True
+        },
+        "community-plugins.json": {
+            "dataview": True,
+            "templater": True
+        }
     }
     
     # Write JSON files
-    (settings / "app.json").write_text(json.dumps(app_json))
-    (settings / "appearance.json").write_text(json.dumps(appearance_json))
-    (settings / "hotkeys.json").write_text(json.dumps(hotkeys_json))
-    (settings / "core-plugins.json").write_text(json.dumps(core_plugins_json))
-    (settings / "community-plugins.json").write_text(json.dumps(community_plugins_json))
+    for filename, data in settings_data.items():
+        (settings / filename).write_text(json.dumps(data))
     
     # Create sample themes directory
     themes = settings / "themes"
@@ -95,17 +94,26 @@ def test_sync_all_settings(sync_manager, source_vault, target_vault):
     assert app_json["alwaysUpdateLinks"] is True
 
 
-def test_sync_specific_items(sync_manager, source_vault, target_vault):
+@pytest.mark.parametrize("items,expected_files", [
+    (["appearance.json", "themes"], {"appearance.json", "themes"}),
+    (["app.json", "hotkeys.json"], {"app.json", "hotkeys.json"}),
+    (["community-plugins.json", "snippets"], {"community-plugins.json", "snippets"}),
+])
+def test_sync_specific_items(sync_manager, source_vault, target_vault, items, expected_files):
     """Test syncing specific settings items."""
-    # Sync only appearance and themes
-    items = ["appearance.json", "themes"]
     assert sync_manager.sync_settings(items) is True
     
     # Verify only specified files were synced
     target_settings = target_vault / ".obsidian"
-    assert (target_settings / "appearance.json").exists()
-    assert (target_settings / "themes").exists()
-    assert not (target_settings / "app.json").exists()
+    for file in expected_files:
+        assert (target_settings / file).exists()
+    
+    # Verify other files were not synced
+    all_possible_files = {"app.json", "appearance.json", "hotkeys.json", 
+                         "core-plugins.json", "community-plugins.json", 
+                         "themes", "snippets"}
+    for file in all_possible_files - expected_files:
+        assert not (target_settings / file).exists()
 
 
 def test_sync_dry_run(source_vault, target_vault, sample_config):
@@ -122,20 +130,33 @@ def test_sync_dry_run(source_vault, target_vault, sample_config):
     assert len(target_files) == 0
 
 
-def test_sync_invalid_source_vault(target_vault, sample_config):
-    """Test syncing with invalid source vault."""
-    sync_manager = SyncManager(Path("/nonexistent"), target_vault, sample_config)
+@pytest.mark.parametrize("vault_type,create_vault", [
+    ("source", False),
+    ("target", False),
+    ("source", True),  # Test with empty vault
+    ("target", True),  # Test with empty vault
+])
+def test_sync_invalid_vault(tmp_path, sample_config, vault_type, create_vault):
+    """Test syncing with invalid vault configurations."""
+    # Create the valid vault
+    valid_vault = tmp_path / "valid_vault"
+    valid_vault.mkdir()
+    (valid_vault / ".obsidian").mkdir()
+
+    # Set up the invalid vault
+    invalid_vault = tmp_path / "invalid_vault"
+    if create_vault:
+        invalid_vault.mkdir()  # Create empty vault without .obsidian directory
+
+    # Create sync manager based on which vault is invalid
+    if vault_type == "source":
+        sync_manager = SyncManager(invalid_vault, valid_vault, sample_config)
+    else:
+        sync_manager = SyncManager(valid_vault, invalid_vault, sample_config)
+
     with pytest.raises(SyncError) as exc_info:
         sync_manager.sync_settings()
-    assert "Vault directory does not exist" in str(exc_info.value)
-
-
-def test_sync_invalid_target_vault(source_vault, sample_config):
-    """Test syncing with invalid target vault."""
-    sync_manager = SyncManager(source_vault, Path("/nonexistent"), sample_config)
-    with pytest.raises(SyncError) as exc_info:
-        sync_manager.sync_settings()
-    assert "Vault directory does not exist" in str(exc_info.value)
+    assert "Invalid vault" in str(exc_info.value)
 
 
 def test_sync_with_backup_failure(sync_manager, source_vault, target_vault, monkeypatch):
@@ -150,33 +171,40 @@ def test_sync_with_backup_failure(sync_manager, source_vault, target_vault, monk
     assert "Backup failed" in str(exc_info.value)
 
 
-def test_sync_with_invalid_json(sync_manager, source_vault, target_vault):
-    """Test sync behavior with invalid JSON files."""
+@pytest.mark.parametrize("invalid_content,error_message", [
+    ("{invalid json}", "Invalid JSON"),
+    ('{"missing": "comma" "key": "value"}', "Invalid JSON"),
+    ("not json at all", "Invalid JSON"),
+])
+def test_sync_with_invalid_json(sync_manager, source_vault, target_vault, invalid_content, error_message):
+    """Test sync behavior with various invalid JSON content."""
     # Create invalid JSON in source
     invalid_json = source_vault / ".obsidian" / "app.json"
-    invalid_json.write_text("{invalid json}")
+    invalid_json.write_text(invalid_content)
     
     with pytest.raises(ValidationError) as exc_info:
         sync_manager.sync_settings()
-    assert "Invalid JSON" in str(exc_info.value)
+    assert error_message in str(exc_info.value)
 
 
-def test_sync_with_permission_error(sync_manager, source_vault, target_vault):
-    """Test sync behavior with permission errors."""
-    # Create a file in the source vault
+@pytest.mark.parametrize("permission,expected_error", [
+    (0o444, "Permission denied"),  # Read-only
+    (0o000, "Permission denied"),  # No permissions
+])
+def test_sync_with_permission_error(sync_manager, source_vault, target_vault, permission, expected_error):
+    """Test sync behavior with different permission configurations."""
+    # Create a test file in the source
     source_settings = source_vault / ".obsidian"
     target_settings = target_vault / ".obsidian"
-    
-    # Create a test file in the source
     test_file = source_settings / "test.json"
     test_file.write_text('{"test": true}')
     
-    # Remove write permissions from target settings dir
-    target_settings.chmod(0o444)  # Read-only
+    # Modify permissions
+    target_settings.chmod(permission)
     
     with pytest.raises(SyncError) as exc_info:
         sync_manager.sync_settings(["test.json"])
-    assert "Permission denied" in str(exc_info.value)
+    assert expected_error in str(exc_info.value)
     
     # Cleanup - restore permissions for cleanup
     target_settings.chmod(0o755)
@@ -187,24 +215,28 @@ def test_sync_empty_items_list(sync_manager):
     assert sync_manager.sync_settings([]) is True
 
 
-def test_sync_ignore_errors(source_vault, target_vault, sample_config):
-    """Test sync with ignore_errors enabled."""
+@pytest.mark.parametrize("invalid_file,valid_file,valid_content", [
+    ("app.json", "appearance.json", {"theme": "light"}),
+    ("hotkeys.json", "core-plugins.json", {"file-explorer": True}),
+])
+def test_sync_ignore_errors(source_vault, target_vault, sample_config, invalid_file, valid_file, valid_content):
+    """Test sync with ignore_errors enabled for different file combinations."""
     # Enable error ignoring
     sample_config.sync.ignore_errors = True
     sync_manager = SyncManager(source_vault, target_vault, sample_config)
     
     # Create invalid JSON to trigger error
-    invalid_json = source_vault / ".obsidian" / "app.json"
+    invalid_json = source_vault / ".obsidian" / invalid_file
     invalid_json.write_text("{invalid json}")
     
     # Create a valid file to ensure partial success
-    valid_json = source_vault / ".obsidian" / "appearance.json"
-    valid_json.write_text('{"theme": "light"}')
+    valid_json = source_vault / ".obsidian" / valid_file
+    valid_json.write_text(json.dumps(valid_content))
     
     # Sync should complete despite error
-    assert sync_manager.sync_settings(["app.json", "appearance.json"]) is True
+    assert sync_manager.sync_settings([invalid_file, valid_file]) is True
     
     # Verify valid file was synced
-    target_appearance = target_vault / ".obsidian" / "appearance.json"
-    assert target_appearance.exists()
-    assert json.loads(target_appearance.read_text())["theme"] == "light" 
+    target_valid = target_vault / ".obsidian" / valid_file
+    assert target_valid.exists()
+    assert json.loads(target_valid.read_text()) == valid_content 
