@@ -7,7 +7,7 @@ This module provides the core functionality for syncing settings between Obsidia
 import json
 import shutil
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Union
 
 from loguru import logger
 
@@ -16,6 +16,7 @@ from obsyncit.errors import (
     BackupError,
     SyncError,
     ValidationError,
+    ObsyncError,
     handle_file_operation_error
 )
 from obsyncit.schemas import Config
@@ -152,6 +153,43 @@ class SyncManager:
             sync_items = {item for item in items if item in sync_items}
 
         return sync_items
+
+    def validate_json_file(self, file_path: Path, required_fields: Optional[List[str]] = None) -> None:
+        """Validate a JSON file.
+
+        Args:
+            file_path: Path to the JSON file to validate
+            required_fields: Optional list of fields that must be present in the JSON
+
+        Raises:
+            ObsyncError: If the file doesn't exist or can't be read
+            ValidationError: If the JSON is invalid or missing required fields
+        """
+        try:
+            if not file_path.exists():
+                raise ObsyncError("File not found", str(file_path))
+
+            try:
+                with open(file_path) as f:
+                    data = json.load(f)
+            except PermissionError:
+                raise ObsyncError("Permission denied", str(file_path))
+            except json.JSONDecodeError as e:
+                raise ValidationError("Invalid JSON", file_path, [str(e)])
+
+            if required_fields:
+                missing_fields = [field for field in required_fields if field not in data]
+                if missing_fields:
+                    raise ValidationError(
+                        "Schema validation failed",
+                        file_path,
+                        [f"Missing required fields: {', '.join(missing_fields)}"]
+                    )
+
+        except (ObsyncError, ValidationError):
+            raise
+        except Exception as e:
+            raise ObsyncError(f"Failed to validate JSON file: {str(e)}", str(file_path)) from e
 
     def _sync_item(self, item: str) -> None:
         """Sync a specific settings item from source to target.
