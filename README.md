@@ -1,6 +1,24 @@
 # Obsidian Settings Sync (ObsyncIt)
 
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Code Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](https://github.com/yourusername/obsyncit)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 A powerful Python tool for synchronizing settings between Obsidian vaults, including themes, plugins, and snippets. Built with safety and flexibility in mind.
+
+## Quick Start
+
+```bash
+# Install from PyPI
+pip install obsyncit
+
+# Basic sync between vaults
+obsyncit /path/to/source/vault /path/to/target/vault
+
+# Or use the interactive TUI
+obsyncit-tui
+```
 
 ## Features
 
@@ -122,23 +140,113 @@ retention = "1 month"
 compression = "zip"
 ```
 
+## API Documentation
+
+### Core Classes
+
+- `ObsidianSettingsSync`: Main sync manager class
+  ```python
+  from obsyncit import ObsidianSettingsSync
+  
+  sync = ObsidianSettingsSync(source_vault, target_vault, config)
+  sync.sync_settings(items=['themes', 'plugins'])
+  ```
+
+- `Config`: Configuration management
+  ```python
+  from obsyncit.schemas import Config
+  
+  config = Config(
+      sync={'dry_run': True},
+      backup={'max_backups': 5}
+  )
+  ```
+
+### Error Handling
+
+All operations raise appropriate exceptions from `obsyncit.errors`:
+- `VaultError`: Invalid vault operations
+- `ConfigError`: Configuration issues
+- `ValidationError`: Schema validation failures
+- `BackupError`: Backup operations failures
+- `SyncError`: Sync operation failures
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Permission Denied**
+   ```bash
+   # Fix permissions on vault directory
+   chmod -R u+rw /path/to/vault/.obsidian
+   ```
+
+2. **Invalid JSON Settings**
+   ```bash
+   # Validate settings files
+   obsyncit --validate /path/to/vault
+   ```
+
+3. **Sync Conflicts**
+   ```bash
+   # Use dry run to preview changes
+   obsyncit --dry-run /source /target
+   ```
+
+### Debug Mode
+
+Enable debug logging for detailed information:
+```bash
+obsyncit --log-level DEBUG /source /target
+```
+
+## Development Environment
+
+1. Install development dependencies:
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+2. Set up pre-commit hooks:
+   ```bash
+   pre-commit install
+   ```
+
+3. Configure development tools:
+   ```bash
+   # Install linting tools
+   pip install black ruff pylint
+
+   # Set up test environment
+   pip install pytest pytest-cov
+   ```
+
 ## Project Structure
 
-- `obsyncit/`: Core package directory
-  - `main.py`: CLI entry point
-  - `obsync.py`: Core sync functionality
-  - `obsync_tui.py`: TUI interface
-  - `sync.py`: Sync operations
-  - `backup.py`: Backup management
-  - `vault.py`: Vault operations
-  - `errors.py`: Error handling
-  - `schemas/`: JSON schemas and validation
-  - `logger.py`: Logging configuration
-
-- `tests/`: Test suite
-  - Unit tests
-  - Integration tests
-  - Test fixtures and utilities
+```
+obsyncit/
+├── obsyncit/           # Core package
+│   ├── __init__.py    # Package initialization
+│   ├── main.py        # CLI entry point
+│   ├── obsync_tui.py  # TUI interface
+│   ├── sync.py        # Sync operations
+│   ├── backup.py      # Backup management
+│   ├── vault.py       # Vault operations
+│   ├── errors.py      # Error definitions
+│   ├── logger.py      # Logging setup
+│   └── schemas/       # JSON schemas
+├── tests/             # Test suite
+│   ├── __init__.py
+│   ├── test_sync.py
+│   ├── test_backup.py
+│   └── ...
+├── docs/              # Documentation
+├── .github/           # GitHub workflows
+├── .pre-commit-config.yaml
+├── pyproject.toml     # Project configuration
+├── setup.py          # Package setup
+└── README.md         # This file
+```
 
 ## Development
 

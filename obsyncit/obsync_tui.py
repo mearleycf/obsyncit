@@ -3,6 +3,8 @@
 import logging
 import sys
 from pathlib import Path
+import json
+from typing import Tuple
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -13,7 +15,14 @@ from rich.table import Table
 
 from obsyncit import ObsidianSettingsSync
 from obsyncit.schemas import Config
-from obsyncit.errors import ObsyncError
+from obsyncit.errors import (
+    ObsyncError,
+    VaultError,
+    ConfigError,
+    ValidationError,
+    BackupError,
+    SyncError,
+)
 
 
 class ObsidianSyncTUI:
@@ -121,18 +130,43 @@ class ObsidianSyncTUI:
                 self.console.print("[red]✗ Sync failed![/red]")
 
         except KeyboardInterrupt:
-            print("DEBUG: KeyboardInterrupt caught")
             self.console.print("\n[yellow]Operation cancelled by user[/yellow]")
             sys.exit(0)
+        except (VaultError, ConfigError, ValidationError, BackupError, SyncError) as e:
+            # Handle specific ObsyncIt errors with appropriate messages
+            error_type = type(e).__name__.replace("Error", " Error")
+            self.console.print(f"[red]{error_type}:[/red]")
+            self.console.print(f"[red]{e.full_message}[/red]")
+            sys.exit(1)
         except ObsyncError as e:
-            print(f"DEBUG: ObsyncError caught: {type(e)}, {str(e)}")
-            # Handle ObsyncIt-specific errors with full message
+            # Handle base ObsyncIt errors
             self.console.print(f"[red]Error: {e.full_message}[/red]")
             sys.exit(1)
+        except json.JSONDecodeError as e:
+            # Handle JSON parsing errors
+            self.console.print(f"[red]Configuration Error: Invalid JSON format[/red]")
+            self.console.print(f"[red]Details: {str(e)}[/red]")
+            sys.exit(1)
+        except PermissionError as e:
+            # Handle permission-related errors
+            self.console.print(f"[red]Permission Error: Unable to access required files or directories[/red]")
+            self.console.print(f"[red]Details: {str(e)}[/red]")
+            sys.exit(1)
+        except FileNotFoundError as e:
+            # Handle missing file errors
+            self.console.print(f"[red]File Error: Required file or directory not found[/red]")
+            self.console.print(f"[red]Details: {str(e)}[/red]")
+            sys.exit(1)
+        except OSError as e:
+            # Handle other OS-related errors
+            self.console.print(f"[red]System Error: Operation failed due to OS-level issue[/red]")
+            self.console.print(f"[red]Details: {str(e)}[/red]")
+            sys.exit(1)
         except Exception as e:
-            print(f"DEBUG: Other exception caught: {type(e)}, {str(e)}")
-            # Handle other unexpected errors
-            self.console.print(f"[red]Error: {str(e)}[/red]")
+            # Handle truly unexpected errors with logging for debugging
+            logging.exception("An unexpected error occurred")
+            self.console.print(f"[red]Unexpected Error: {str(e)}[/red]")
+            self.console.print("[yellow]This is an unexpected error. Please report this issue.[/yellow]")
             sys.exit(1)
 
 

@@ -7,6 +7,17 @@ from loguru import logger
 from obsyncit.logger import setup_logging
 from obsyncit.schemas import Config, LoggingConfig
 
+@pytest.fixture(autouse=True)
+def reset_logger():
+    """Reset logger before each test."""
+    logger.remove()  # Remove all handlers
+    yield
+    logger.remove()  # Cleanup after test
+
+@pytest.fixture
+def mock_logger_add(mocker):
+    """Mock logger.add for testing."""
+    return mocker.patch('loguru.logger.add')
 
 @pytest.fixture
 def sample_config():
@@ -18,18 +29,16 @@ def sample_config():
             format="{time} | {level} | {message}",
             rotation="1 day",
             retention="1 week",
-            compression="zip"
+            compression="zip",
         )
     )
-
 
 @pytest.fixture
 def temp_log_dir(tmp_path):
     """Create a temporary directory for log files."""
     log_dir = tmp_path / ".logs"
-    log_dir.mkdir()
+    log_dir.mkdir(exist_ok=True)
     return log_dir
-
 
 def test_setup_logging_basic(sample_config, temp_log_dir, mocker):
     """Test basic logging setup."""

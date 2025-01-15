@@ -44,10 +44,26 @@ class BackupManager:
 
         Raises:
             BackupError: If backup creation fails
+            PermissionError: If unable to access required directories
+            FileNotFoundError: If required files are missing
+            OSError: If there are OS-level issues
         """
         try:
             # Create backup directory if it doesn't exist
-            self.backup_dir.mkdir(exist_ok=True)
+            try:
+                self.backup_dir.mkdir(exist_ok=True)
+            except PermissionError as e:
+                raise BackupError(
+                    "Permission denied creating backup directory",
+                    backup_path=self.backup_dir,
+                    details=str(e)
+                ) from e
+            except OSError as e:
+                raise BackupError(
+                    "Failed to create backup directory",
+                    backup_path=self.backup_dir,
+                    details=str(e)
+                ) from e
 
             # Check if there are settings to backup
             if not self.settings_dir.exists() or not any(self.settings_dir.iterdir()):
@@ -57,11 +73,43 @@ class BackupManager:
             # Create timestamped backup directory with microseconds for uniqueness
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             backup_path = self.backup_dir / f"backup_{timestamp}"
-            backup_path.mkdir(exist_ok=True)
+            try:
+                backup_path.mkdir(exist_ok=True)
+            except PermissionError as e:
+                raise BackupError(
+                    "Permission denied creating backup",
+                    backup_path=backup_path,
+                    details=str(e)
+                ) from e
+            except OSError as e:
+                raise BackupError(
+                    "Failed to create backup",
+                    backup_path=backup_path,
+                    details=str(e)
+                ) from e
 
             # Copy settings to backup
             backup_settings_dir = backup_path / ".obsidian"
-            shutil.copytree(self.settings_dir, backup_settings_dir)
+            try:
+                shutil.copytree(self.settings_dir, backup_settings_dir)
+            except PermissionError as e:
+                raise BackupError(
+                    "Permission denied copying settings",
+                    backup_path=backup_path,
+                    details=str(e)
+                ) from e
+            except FileNotFoundError as e:
+                raise BackupError(
+                    "Settings directory not found",
+                    backup_path=backup_path,
+                    details=str(e)
+                ) from e
+            except OSError as e:
+                raise BackupError(
+                    "Failed to copy settings",
+                    backup_path=backup_path,
+                    details=str(e)
+                ) from e
 
             # Clean up old backups
             self._cleanup_old_backups()
@@ -69,8 +117,16 @@ class BackupManager:
             logger.info(f"Created backup at {backup_path}")
             return backup_path
 
+        except (PermissionError, FileNotFoundError, OSError) as e:
+            # These should already be wrapped in BackupError by the specific handlers
+            raise
         except Exception as e:
-            raise BackupError(f"Failed to create backup: {str(e)}", backup_path=self.settings_dir) from e
+            # Handle any unexpected errors
+            raise BackupError(
+                "Unexpected error during backup",
+                backup_path=self.backup_dir,
+                details=f"Error type: {type(e).__name__}, Message: {str(e)}"
+            ) from e
 
     def restore_backup(self, backup_path: Optional[Path] = None) -> Path:
         """Restore settings from a backup.
@@ -83,17 +139,28 @@ class BackupManager:
 
         Raises:
             BackupError: If restore fails or backup not found
+            PermissionError: If unable to access required directories
+            FileNotFoundError: If required files are missing
+            OSError: If there are OS-level issues
         """
         try:
             # Get backup to restore
             backup_to_restore = self._get_backup_path(backup_path)
             if not backup_to_restore:
-                raise BackupError("No backup found to restore", backup_path=backup_path)
+                raise BackupError(
+                    "No backup found to restore",
+                    backup_path=backup_path,
+                    details="Backup path not found or no backups available"
+                )
 
             # Verify backup contains settings
             backup_settings = backup_to_restore / ".obsidian"
             if not backup_settings.exists():
-                raise BackupError("Invalid backup - no settings found", backup_path=backup_to_restore)
+                raise BackupError(
+                    "Invalid backup - no settings found",
+                    backup_path=backup_to_restore,
+                    details="Backup directory does not contain .obsidian settings"
+                )
 
             # Create backup of current settings before restore
             if self.settings_dir.exists():
@@ -101,37 +168,90 @@ class BackupManager:
 
             # Remove current settings directory
             if self.settings_dir.exists():
-                shutil.rmtree(self.settings_dir)
+                try:
+                    shutil.rmtree(self.settings_dir)
+                except PermissionError as e:
+                    raise BackupError(
+                        "Permission denied removing current settings",
+                        backup_path=backup_to_restore,
+                        details=str(e)
+                    ) from e
+                except OSError as e:
+                    raise BackupError(
+                        "Failed to remove current settings",
+                        backup_path=backup_to_restore,
+                        details=str(e)
+                    ) from e
 
             # Copy backup settings to vault
-            shutil.copytree(backup_settings, self.settings_dir)
+            try:
+                shutil.copytree(backup_settings, self.settings_dir)
+            except PermissionError as e:
+                raise BackupError(
+                    "Permission denied restoring settings",
+                    backup_path=backup_to_restore,
+                    details=str(e)
+                ) from e
+            except FileNotFoundError as e:
+                raise BackupError(
+                    "Backup settings not found",
+                    backup_path=backup_to_restore,
+                    details=str(e)
+                ) from e
+            except OSError as e:
+                raise BackupError(
+                    "Failed to restore settings",
+                    backup_path=backup_to_restore,
+                    details=str(e)
+                ) from e
+
             logger.info(f"Restored settings from: {backup_to_restore}")
             return backup_to_restore
 
+        except BackupError:
+            raise
+        except (PermissionError, FileNotFoundError, OSError) as e:
+            raise BackupError(
+                "System error during restore",
+                backup_path=backup_path,
+                details=f"Error type: {type(e).__name__}, Message: {str(e)}"
+            ) from e
         except Exception as e:
-            if isinstance(e, BackupError):
-                raise
-            handle_file_operation_error(e, "restoring backup", self.settings_dir)
-            raise BackupError("Failed to restore backup", backup_path=backup_path) from e
+            raise BackupError(
+                "Unexpected error during restore",
+                backup_path=backup_path,
+                details=f"Error type: {type(e).__name__}, Message: {str(e)}"
+            ) from e
 
     def list_backups(self) -> List[str]:
         """List available backups.
 
         Returns:
             List[str]: List of backup paths
+
+        Note:
+            This method handles errors internally and returns an empty list on failure
+            to maintain compatibility with existing code that expects a list.
         """
         try:
             if not self.backup_dir.exists():
                 return []
 
-            backups = sorted(
-                [str(p) for p in self.backup_dir.glob("backup_*")],
-                reverse=True
-            )
-            return backups
+            try:
+                backups = sorted(
+                    [str(p) for p in self.backup_dir.glob("backup_*")],
+                    reverse=True
+                )
+                return backups
+            except PermissionError as e:
+                logger.error(f"Permission denied listing backups: {str(e)}")
+                return []
+            except OSError as e:
+                logger.error(f"Error listing backups: {str(e)}")
+                return []
 
         except Exception as e:
-            handle_file_operation_error(e, "listing backups", self.backup_dir)
+            logger.error(f"Unexpected error listing backups: {str(e)}")
             return []
 
     def _get_backup_path(self, backup_path: Optional[Path] = None) -> Optional[Path]:
@@ -142,6 +262,10 @@ class BackupManager:
 
         Returns:
             Optional[Path]: Path to the backup, or None if not found
+
+        Note:
+            This method handles errors internally and returns None on failure
+            to maintain compatibility with existing code that expects an optional path.
         """
         try:
             if backup_path:
@@ -160,11 +284,16 @@ class BackupManager:
             return Path(backups[0])
 
         except Exception as e:
-            handle_file_operation_error(e, "getting backup path", backup_path or self.backup_dir)
+            logger.error(f"Error getting backup path: {str(e)}")
             return None
 
     def _cleanup_old_backups(self) -> None:
-        """Remove old backups exceeding the maximum count."""
+        """Remove old backups exceeding the maximum count.
+
+        Note:
+            This method handles errors internally to prevent backup creation from failing
+            due to cleanup issues.
+        """
         try:
             backups = [Path(p) for p in self.list_backups()]
             if len(backups) > self.max_backups:
@@ -173,8 +302,10 @@ class BackupManager:
                         if old_backup.exists():
                             shutil.rmtree(old_backup)
                             logger.debug(f"Removed old backup: {old_backup}")
-                    except Exception as e:
-                        handle_file_operation_error(e, "removing old backup", old_backup)
+                    except PermissionError as e:
+                        logger.warning(f"Permission denied removing old backup {old_backup}: {str(e)}")
+                    except OSError as e:
+                        logger.warning(f"Error removing old backup {old_backup}: {str(e)}")
 
         except Exception as e:
-            handle_file_operation_error(e, "cleaning up backups", self.backup_dir)
+            logger.warning(f"Error during backup cleanup: {str(e)}")
