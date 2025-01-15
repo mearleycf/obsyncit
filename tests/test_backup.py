@@ -126,7 +126,15 @@ def test_restore_nonexistent_backup(backup_manager, temp_vault):
 
 
 def test_backup_with_no_settings(backup_manager, temp_vault):
-    """Test backup creation when settings directory is empty."""
+    """
+    Test backup creation when settings directory is empty.
+    
+    This test verifies that the backup manager gracefully handles cases where:
+    1. The .obsidian directory exists but is empty
+    2. No settings files are present to backup
+    
+    Expected behavior: Returns None instead of creating an empty backup
+    """
     # Remove settings directory
     shutil.rmtree(temp_vault / ".obsidian")
     os.mkdir(temp_vault / ".obsidian")
@@ -136,19 +144,69 @@ def test_backup_with_no_settings(backup_manager, temp_vault):
     assert backup_path is None
 
 
-def test_backup_permission_error(backup_manager, temp_vault):
-    """Test backup with permission error."""
-    # Remove read permissions from settings dir
+@pytest.mark.parametrize("permission_scenario", [
+    ("no_read", 0o000, "Permission denied reading source"),
+    ("no_write_backup", 0o444, "Permission denied creating backup"),
+    ("no_execute", 0o666, "Permission denied accessing directory"),
+])
+def test_backup_permission_scenarios(backup_manager, temp_vault, permission_scenario):
+    """
+    Test backup operations under different permission scenarios.
+    
+    Tests various permission combinations that might occur in real environments:
+    - No read access to source
+    - No write access to backup location
+    - No execute permission for directory traversal
+    """
+    scenario_name, permission, expected_error = permission_scenario
     settings_dir = temp_vault / ".obsidian"
-    settings_dir.chmod(0o000)
+    
+    if scenario_name == "no_write_backup":
+        # Test backup directory permissions
+        backup_dir = temp_vault / ".backups"
+        backup_dir.mkdir(exist_ok=True)
+        backup_dir.chmod(permission)
+    else:
+        # Test source directory permissions
+        settings_dir.chmod(permission)
 
     # Attempt backup
     with pytest.raises(BackupError) as exc_info:
         backup_manager.create_backup()
-    assert "Permission denied" in str(exc_info.value)
+    assert expected_error in str(exc_info.value)
 
+    # Cleanup - restore permissions
+    if scenario_name == "no_write_backup":
+        backup_dir.chmod(0o755)
+    else:
+        settings_dir.chmod(0o755)
+
+
+def test_backup_mixed_permissions(backup_manager, temp_vault):
+    """
+    Test backup behavior with mixed permission settings.
+    
+    Verifies backup operations when:
+    - Some files are readable but others aren't
+    - Some directories are accessible but others aren't
+    This reflects real-world scenarios where permissions vary across the vault.
+    """
+    settings_dir = temp_vault / ".obsidian"
+    
+    # Create additional test files with different permissions
+    restricted_file = settings_dir / "restricted.json"
+    restricted_file.write_text('{"restricted": true}')
+    restricted_file.chmod(0o000)
+    
+    readable_file = settings_dir / "readable.json"
+    readable_file.write_text('{"readable": true}')
+    
+    with pytest.raises(BackupError) as exc_info:
+        backup_manager.create_backup()
+    assert "Permission denied" in str(exc_info.value)
+    
     # Cleanup
-    settings_dir.chmod(0o755)
+    restricted_file.chmod(0o644)
 
 
 def test_list_backups_sorted(backup_manager, temp_vault):
