@@ -1,12 +1,30 @@
-"""Tests for JSON schema validation functionality."""
+"""
+Tests for JSON schema validation functionality in ObsyncIt.
 
+This test suite verifies the JSON validation capabilities of the application, including:
+- Schema validation for configuration files
+- Handling of malformed JSON
+- Permission and file access error handling
+- Required field validation
+- Edge cases in JSON processing
+
+The tests ensure that the application properly validates all JSON configuration
+files before they are used in sync operations, preventing corruption or
+invalid states in vault settings.
+"""
+
+# Standard library imports
 import json
 from pathlib import Path
+from unittest.mock import Mock
+
+# Third-party imports
 import pytest
+
+# Local application imports
 from obsyncit.sync import SyncManager
 from obsyncit.schemas import Config, SyncConfig
 from obsyncit.errors import ValidationError, ObsyncError
-from unittest.mock import Mock
 
 
 @pytest.fixture
