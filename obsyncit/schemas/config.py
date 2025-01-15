@@ -7,8 +7,8 @@ validating user-provided configuration files.
 
 from enum import Enum
 from pathlib import Path
-from typing import Union
-from pydantic import BaseModel, Field, validator
+from typing import Union, Optional, List
+from pydantic import BaseModel, Field, validator, root_validator
 
 
 class LogLevel(str, Enum):
@@ -208,29 +208,206 @@ class BackupConfig(BaseModel):
     )
 
 
-class SyncConfig(BaseModel):
-    """Sync configuration settings."""
+class CoreSettingsConfig(BaseModel):
+    """
+    Configuration for core Obsidian settings synchronization.
+    
+    Controls which core settings files are synchronized:
+    - app.json: General application settings
+    - appearance.json: Theme and visual preferences
+    - hotkeys.json: Keyboard shortcuts
+    - graph.json: Graph view settings
+    - workspace.json: Workspace layout (disabled by default)
+    """
 
-    core_settings: bool = Field(
+    app: bool = Field(
         default=True,
-        description="Sync core settings (app.json, appearance.json, hotkeys.json)"
+        description="Sync app.json (recommended for consistent behavior)"
     )
-    core_plugins: bool = Field(
+    appearance: bool = Field(
+        default=True,
+        description="Sync appearance.json (recommended for consistent look)"
+    )
+    hotkeys: bool = Field(
+        default=True,
+        description="Sync hotkeys.json (recommended for consistent shortcuts)"
+    )
+    graph: bool = Field(
+        default=True,
+        description="Sync graph.json (graph view settings)"
+    )
+    workspace: bool = Field(
+        default=False,
+        description="Sync workspace.json (caution: may conflict with local layouts)"
+    )
+
+
+class PluginConfig(BaseModel):
+    """
+    Configuration for plugin synchronization.
+    
+    Controls synchronization of:
+    - Core plugin settings and states
+    - Community plugin settings
+    - Plugin installation states
+    """
+
+    core_enabled: bool = Field(
+        default=True,
+        description="Sync core plugin enabled/disabled states"
+    )
+    core_settings: bool = Field(
         default=True,
         description="Sync core plugin settings"
     )
-    community_plugins: bool = Field(
+    community_enabled: bool = Field(
+        default=True,
+        description="Sync community plugin enabled/disabled states"
+    )
+    community_settings: bool = Field(
         default=True,
         description="Sync community plugin settings"
     )
+    sync_plugin_list: bool = Field(
+        default=False,
+        description="Install/remove plugins to match source (use with caution)"
+    )
+
+
+class CustomizationConfig(BaseModel):
+    """
+    Configuration for visual customization synchronization.
+    
+    Controls synchronization of:
+    - Themes (CSS files in themes directory)
+    - Snippets (CSS snippets for custom styling)
+    - Custom fonts
+    """
+
     themes: bool = Field(
         default=True,
-        description="Sync themes"
+        description="Sync theme files"
     )
     snippets: bool = Field(
         default=True,
-        description="Sync snippets"
+        description="Sync CSS snippets"
     )
+    fonts: bool = Field(
+        default=False,
+        description="Sync custom fonts (may increase sync size significantly)"
+    )
+
+
+class SyncConfig(BaseModel):
+    """
+    Sync configuration settings.
+    
+    This class defines which Obsidian settings and customizations
+    are synchronized between vaults. It provides fine-grained control
+    over different aspects of synchronization.
+    
+    Example Configuration:
+        ```toml
+        [sync]
+        # Core Settings
+        [sync.core_settings]
+        app = true
+        appearance = true
+        hotkeys = true
+        graph = true
+        workspace = false  # Workspace layout often better kept separate
+        
+        # Plugin Settings
+        [sync.plugins]
+        core_enabled = true
+        core_settings = true
+        community_enabled = true
+        community_settings = true
+        sync_plugin_list = false  # Be cautious with automatic plugin installation
+        
+        # Visual Customization
+        [sync.customization]
+        themes = true
+        snippets = true
+        fonts = false  # Fonts can be large, sync manually if needed
+        ```
+    
+    Common Use Cases:
+    1. Full Sync (except workspace):
+       - Enable all settings except workspace.json
+       - Good for personal vaults where you want identical setup
+    
+    2. Visual-Only Sync:
+       - Enable only appearance, themes, and snippets
+       - Good for maintaining consistent look while keeping separate functionality
+    
+    3. Functional Sync:
+       - Enable app settings, hotkeys, and plugins
+       - Good for maintaining consistent behavior while allowing visual customization
+    
+    4. Minimal Sync:
+       - Enable only core settings
+       - Good for basic consistency while allowing local customization
+    """
+
+    core_settings: CoreSettingsConfig = Field(
+        default_factory=CoreSettingsConfig,
+        description="Core settings synchronization options"
+    )
+    
+    plugins: PluginConfig = Field(
+        default_factory=PluginConfig,
+        description="Plugin synchronization options"
+    )
+    
+    customization: CustomizationConfig = Field(
+        default_factory=CustomizationConfig,
+        description="Visual customization synchronization options"
+    )
+    
+    dry_run: bool = Field(
+        default=False,
+        description="Simulate sync without making changes"
+    )
+    
+    ignore_errors: bool = Field(
+        default=False,
+        description="Continue sync even if non-critical errors occur"
+    )
+
+    @root_validator
+    def validate_plugin_dependencies(cls, values: dict) -> dict:
+        """
+        Validate plugin configuration dependencies.
+        
+        Ensures that:
+        1. If sync_plugin_list is True, community_enabled must be True
+        2. If community_settings is True, community_enabled should be True
+        
+        Args:
+            values: Dictionary of configuration values
+
+        Returns:
+            dict: Validated configuration values
+
+        Raises:
+            ValueError: If configuration combinations are invalid
+        """
+        plugins = values.get("plugins", {})
+        if not isinstance(plugins, dict):
+            return values
+            
+        if plugins.get("sync_plugin_list") and not plugins.get("community_enabled"):
+            raise ValueError(
+                "sync_plugin_list requires community_enabled to be True"
+            )
+            
+        if plugins.get("community_settings") and not plugins.get("community_enabled"):
+            raise ValueError(
+                "community_settings requires community_enabled to be True"
+            )
+            
+        return values
 
 
 class Config(BaseModel):
