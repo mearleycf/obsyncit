@@ -1,7 +1,6 @@
 """Tests for sync operations in ObsyncIt."""
 
 import json
-import os
 import shutil
 from pathlib import Path
 import pytest
@@ -9,13 +8,15 @@ from obsyncit.sync import SyncManager
 from obsyncit.errors import SyncError, BackupError, ValidationError
 from obsyncit.schemas import Config, SyncConfig
 
-
 @pytest.fixture
+
 def sample_config():
     """Create a sample configuration for testing."""
-    return Config()
-
-
+    config = Config()
+    config.sync.dry_run = False
+    config.sync.ignore_errors = False
+    config.sync.backup_enabled = True
+    return config
 @pytest.fixture
 def source_vault(tmp_path):
     """Create a source vault with sample settings."""

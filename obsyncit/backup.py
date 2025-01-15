@@ -66,8 +66,8 @@ class BackupManager:
                 ) from e
 
             # Check if there are settings to backup
-            if not self.settings_dir.exists() or not any(self.settings_dir.iterdir()):
-                logger.info("No settings to backup - skipping backup creation")
+            if not self.settings_dir.is_dir() or not any(self.settings_dir.iterdir()):
+                logger.info("No valid settings directory or empty settings - skipping backup creation")
                 return None
 
             # Create timestamped backup directory with microseconds for uniqueness

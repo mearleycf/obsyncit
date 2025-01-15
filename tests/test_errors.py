@@ -1,6 +1,7 @@
-"""Tests for error handling functionality."""
+"""
+Tests for error handling functionality.
+"""
 
-import os
 from pathlib import Path
 import pickle
 import json
@@ -10,8 +11,6 @@ from obsyncit.errors import (
     ObsyncError, VaultError, ConfigError, ValidationError,
     BackupError, SyncError, handle_file_operation_error, handle_json_error
 )
-
-
 @pytest.fixture(autouse=True)
 def setup_logging(caplog):
     """Configure logging for tests."""

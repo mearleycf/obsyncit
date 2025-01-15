@@ -32,11 +32,18 @@ class ObsidianSyncTUI:
 
         # Configure Rich logging
         logging.basicConfig(
-            level=logging.INFO,
+            level=logging.DEBUG,  # Allow debug messages during development
             format="%(message)s",
             datefmt="[%X]",
-            handlers=[RichHandler(console=self.console, rich_tracebacks=True)]
+            handlers=[
+                RichHandler(
+                    console=self.console,
+                    rich_tracebacks=True,
+                    show_time=True
+                )
+            ]
         )
+
 
     def display_header(self):
         """Display the application header."""
