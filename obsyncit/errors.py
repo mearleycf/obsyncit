@@ -19,7 +19,7 @@ Each error type provides:
 - Operation-specific attributes
 - Proper error chaining
 
-Example usage:
+Basic Usage Examples:
     ```python
     try:
         sync_manager.sync_settings()
@@ -44,6 +44,84 @@ Example usage:
         if e.details:
             print(f"Details: {e.details}")
     ```
+
+Practical Examples:
+
+1. Raising Vault Errors:
+    ```python
+    def validate_vault(vault_path: Path) -> None:
+        if not vault_path.exists():
+            raise VaultError(
+                message="Vault directory not found",
+                vault_path=vault_path,
+                details="Please check if the vault path exists"
+            )
+        if not (vault_path / ".obsidian").exists():
+            raise VaultError(
+                message="Invalid vault structure",
+                vault_path=vault_path,
+                details="Missing .obsidian directory"
+            )
+    ```
+
+2. Handling Configuration Errors:
+    ```python
+    def load_config(config_path: Path) -> Config:
+        try:
+            config = Config.from_file(config_path)
+            return config
+        except json.JSONDecodeError as e:
+            raise ConfigError(
+                message="Invalid configuration format",
+                file_path=config_path,
+                details=f"JSON error at line {e.lineno}: {e.msg}"
+            )
+        except KeyError as e:
+            raise ConfigError(
+                message="Missing required configuration",
+                file_path=config_path,
+                details=f"Missing key: {e}"
+            )
+    ```
+
+3. Using Error Handlers:
+    ```python
+    def safe_read_json(file_path: Path) -> dict:
+        try:
+            with open(file_path) as f:
+                return json.load(f)
+        except FileNotFoundError as e:
+            handle_file_operation_error(e, "reading", file_path)
+            raise
+        except json.JSONDecodeError as e:
+            handle_json_error(e, file_path)
+            raise ValidationError(
+                message="Invalid JSON format",
+                file_path=file_path,
+                schema_errors=[f"JSON error at line {e.lineno}: {e.msg}"]
+            )
+    ```
+
+4. Chaining Errors:
+    ```python
+    def sync_vault_settings(source: Path, target: Path) -> None:
+        try:
+            validate_vault(source)
+            validate_vault(target)
+        except VaultError as e:
+            raise SyncError(
+                message="Sync failed due to invalid vault",
+                source=source,
+                target=target,
+                details=str(e)
+            ) from e
+    ```
+
+The examples above demonstrate:
+- Proper error creation with context
+- Error chaining for better debugging
+- Using error handlers for common operations
+- Consistent error reporting patterns
 """
 
 import json
