@@ -7,20 +7,28 @@ from pathlib import Path
 import pytest
 from obsyncit.backup import BackupManager
 from obsyncit.errors import BackupError
+from tests.test_utils import create_test_vault
+import json
+
+
+def cleanup_vault(path):
+    """Cleanup vault directory by restoring permissions and removing files."""
+    try:
+        if not path.exists():
+            return
+        # Restore permissions recursively first
+        restore_permissions(path)
+        # Then remove everything
+        shutil.rmtree(path)
+    except (PermissionError, FileNotFoundError):
+        pass
 
 
 @pytest.fixture
-def temp_vault(tmp_path):
-    """Create a temporary vault directory with sample settings."""
-    vault = tmp_path / "test_vault"
-    vault.mkdir()
-    settings = vault / ".obsidian"
-    settings.mkdir()
-    
-    # Create some test files
-    test_file = settings / "test.json"
-    test_file.write_text('{"test": "data"}')
-    
+def temp_vault(clean_dir):
+    """Create a temporary vault for testing."""
+    vault = clean_dir / "test_vault"
+    create_test_vault(vault)
     return vault
 
 
@@ -34,19 +42,41 @@ def backup_manager(temp_vault):
     )
 
 
+def restore_permissions(path: Path):
+    """Recursively restore permissions on a path and its contents."""
+    try:
+        if not path.exists():
+            return
+        if path.is_file():
+            path.chmod(0o644)
+        else:
+            for item in path.iterdir():
+                restore_permissions(item)
+            path.chmod(0o755)
+    except (PermissionError, FileNotFoundError):
+        pass  # Ignore errors during cleanup
+
+
+@pytest.fixture
+def locked_settings_dir(temp_vault):
+    """Create a settings directory with no permissions."""
+    settings_dir = temp_vault / ".obsidian"
+    settings_dir.chmod(0o000)
+    return settings_dir
+
+
 def test_create_backup(backup_manager, temp_vault):
     """Test backup creation."""
     # Create backup
-    backup_path = backup_manager.create_backup()
-    assert backup_path is not None
-    assert backup_path.exists()
-    assert backup_path.is_dir()
+    backup_info = backup_manager.create_backup()
+    assert backup_info is not None
+    assert backup_info.path.exists()
 
     # Verify backup contains settings
-    backup_settings = backup_path / ".obsidian"
+    backup_settings = backup_info.path / ".obsidian"
     assert backup_settings.exists()
-    assert (backup_settings / "test.json").exists()
-    assert (backup_settings / "test.json").read_text() == '{"test": "data"}'
+    assert (backup_settings / "app.json").exists()
+    assert json.loads((backup_settings / "app.json").read_text()) == {"test": True}
 
 
 def test_backup_rotation(backup_manager, temp_vault):
@@ -64,7 +94,7 @@ def test_backup_rotation(backup_manager, temp_vault):
     assert len(backups) == backup_manager.max_backups
 
     # Verify backups are sorted by date (newest first)
-    backup_times = [int(p.split("_")[-1]) for p in backups]
+    backup_times = [b.timestamp.timestamp() for b in backups]  # Convert to Unix timestamps
     assert backup_times == sorted(backup_times, reverse=True)
 
 
@@ -72,36 +102,37 @@ def test_restore_latest_backup(backup_manager, temp_vault):
     """Test restoring the latest backup."""
     # Get initial settings path
     settings_dir = temp_vault / ".obsidian"
-    test_file = settings_dir / "test.json"
+    test_file = settings_dir / "app.json"
 
     # Create backup of original content
     backup_path = backup_manager.create_backup()
     assert backup_path is not None
 
     # Modify file
-    test_file.write_text('{"test": "modified"}')
+    test_file.write_text('{"test": false}')
 
     # Restore backup
     restored_path = backup_manager.restore_backup()
     assert restored_path is not None
 
     # Verify file was restored
-    assert test_file.read_text() == '{"test": "data"}'
+    assert json.loads(test_file.read_text()) == {"test": True}
 
 
 def test_restore_specific_backup(backup_manager, temp_vault):
     """Test restoring a specific backup."""
     # Get settings path
     settings_dir = temp_vault / ".obsidian"
-    test_file = settings_dir / "test.json"
+    test_file = settings_dir / "app.json"
 
     # Create first backup
     backup1 = backup_manager.create_backup()
     assert backup1 is not None
+    backup1_path = backup1.path  # Store the path from BackupInfo
     time.sleep(0.1)
 
     # Create second backup with different content
-    test_file.write_text('{"test": "version2"}')
+    test_file.write_text('{"test": false}')
     backup2 = backup_manager.create_backup()
     assert backup2 is not None
     time.sleep(0.1)
@@ -110,11 +141,11 @@ def test_restore_specific_backup(backup_manager, temp_vault):
     test_file.write_text('{"test": "version3"}')
 
     # Restore first backup
-    restored_path = backup_manager.restore_backup(backup1)
+    restored_path = backup_manager.restore_backup(backup1_path)  # Use the path instead of BackupInfo
     assert restored_path is not None
 
     # Verify correct version was restored
-    assert test_file.read_text() == '{"test": "data"}'
+    assert json.loads(test_file.read_text()) == {"test": True}
 
 
 def test_restore_nonexistent_backup(backup_manager, temp_vault):
@@ -136,19 +167,12 @@ def test_backup_with_no_settings(backup_manager, temp_vault):
     assert backup_path is None
 
 
-def test_backup_permission_error(backup_manager, temp_vault):
+def test_backup_permission_error(backup_manager, locked_settings_dir):
     """Test backup with permission error."""
-    # Remove read permissions from settings dir
-    settings_dir = temp_vault / ".obsidian"
-    settings_dir.chmod(0o000)
-
     # Attempt backup
     with pytest.raises(BackupError) as exc_info:
         backup_manager.create_backup()
     assert "Permission denied" in str(exc_info.value)
-
-    # Cleanup
-    settings_dir.chmod(0o755)
 
 
 def test_list_backups_sorted(backup_manager, temp_vault):
@@ -168,4 +192,4 @@ def test_list_backups_sorted(backup_manager, temp_vault):
     assert len(listed_backups) == len(created_backups)
     
     # Verify backups are sorted (newest first)
-    assert listed_backups == sorted(listed_backups, reverse=True) 
+    assert listed_backups == sorted(listed_backups, reverse=True)

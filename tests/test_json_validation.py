@@ -56,13 +56,23 @@ def sync_manager(tmp_path):
     return SyncManager(source_vault, target_vault, config)
 
 
+@pytest.fixture
+def no_permission_json(tmp_path):
+    """Create a JSON file with no permissions."""
+    test_file = tmp_path / "noperm.json"
+    test_file.write_text('{"valid": "json"}')
+    test_file.chmod(0o000)
+    return test_file
+
+
 def test_validate_json_file_valid(sync_manager, tmp_path):
     """Test validation of a valid JSON file."""
     test_file = tmp_path / "test.json"
     test_file.write_text('{"valid": "json"}')
     
     # Should not raise any exceptions
-    sync_manager.validate_json_file(test_file)
+    data = sync_manager.validate_json_file(test_file)
+    assert data["valid"] == "json"
 
 
 def test_validate_json_file_invalid_json(sync_manager, tmp_path):
@@ -79,7 +89,7 @@ def test_validate_json_file_schema_validation(sync_manager, tmp_path):
     test_file = tmp_path / "schema.json"
     test_file.write_text('{"invalid": "schema"}')
     
-    with pytest.raises(ValidationError, match="Schema validation failed"):
+    with pytest.raises(ValidationError, match="Missing required fields"):
         sync_manager.validate_json_file(test_file, required_fields=["missing_field"])
 
 
@@ -91,14 +101,7 @@ def test_validate_json_file_nonexistent(sync_manager, tmp_path):
         sync_manager.validate_json_file(test_file)
 
 
-def test_validate_json_file_permission_error(sync_manager, tmp_path):
+def test_validate_json_file_permission_error(sync_manager, no_permission_json):
     """Test validation with permission error."""
-    test_file = tmp_path / "noperm.json"
-    test_file.write_text('{"valid": "json"}')
-    test_file.chmod(0o000)  # Remove all permissions
-    
-    with pytest.raises(ObsyncError, match="Permission denied"):
-        sync_manager.validate_json_file(test_file)
-
-    # Cleanup: restore permissions for cleanup
-    test_file.chmod(0o644) 
+    with pytest.raises(ObsyncError, match="Failed to read file"):
+        sync_manager.validate_json_file(no_permission_json)

@@ -32,6 +32,7 @@ ENV/
 .vscode/
 *.swp
 *.swo
+.reloadium
 
 # ObsyncIt specific
 .logs/

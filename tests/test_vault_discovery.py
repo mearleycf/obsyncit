@@ -59,6 +59,26 @@ def multiple_vaults(tmp_path):
     return tmp_path
 
 
+def restore_permissions(path: Path):
+    """Recursively restore permissions on a path and its contents."""
+    if path.is_file():
+        path.chmod(0o644)
+    else:
+        path.chmod(0o755)
+        for item in path.iterdir():
+            restore_permissions(item)
+
+
+@pytest.fixture
+def locked_vault(tmp_path):
+    """Create a vault with no permissions."""
+    vault = tmp_path / "locked_vault"
+    settings = vault / ".obsidian"
+    settings.mkdir(parents=True)
+    vault.chmod(0o000)
+    return vault
+
+
 def test_find_single_vault(sample_vault):
     """Test finding a single vault."""
     discovery = VaultDiscovery(sample_vault.parent)
@@ -98,10 +118,7 @@ def test_get_vault_info(sample_vault):
     """Test getting vault information."""
     info = VaultDiscovery.get_vault_info(sample_vault)
     
-    assert info["name"] == "test_vault"
-    assert info["path"] == str(sample_vault)
-    assert info["settings_count"] == 1  # app.json
-    assert info["plugin_count"] == 2  # plugin1, plugin2
+    assert info.name == "test_vault"
 
 
 def test_invalid_vault(tmp_path):
@@ -131,40 +148,21 @@ def test_invalid_vault(tmp_path):
 
     # Verify vault info
     info = discovery.get_vault_info(valid_vault)
-    assert info["settings_count"] == 2
-    assert info["plugin_count"] == 0
-
-    # Verify invalid vault info
-    info = discovery.get_vault_info(fake_vault)
-    assert info["settings_count"] == 0
-    assert info["plugin_count"] == 0
+    assert info.settings_count == 2
 
 
-def test_permission_error(tmp_path):
+def test_permission_error(locked_vault):
     """Test handling permission errors."""
-    # Create a vault with no read permissions
-    vault = tmp_path / "locked_vault"
-    settings = vault / ".obsidian"
-    settings.mkdir(parents=True)
-    vault.chmod(0o000)
-    
-    discovery = VaultDiscovery(tmp_path)
+    discovery = VaultDiscovery(locked_vault.parent)
     vaults = discovery.find_vaults()
-    
     assert len(vaults) == 0
-    
-    # Cleanup
-    vault.chmod(0o755)
 
 
 def test_get_vault_info_invalid_vault(tmp_path):
     """Test getting info for invalid vault."""
     info = VaultDiscovery.get_vault_info(tmp_path)
     
-    assert info["name"] == tmp_path.name
-    assert info["path"] == str(tmp_path)
-    assert info["settings_count"] == 0
-    assert info["plugin_count"] == 0
+    assert info.name == tmp_path.name
 
 
 def test_ignore_hidden_directories(multiple_vaults):

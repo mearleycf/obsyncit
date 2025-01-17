@@ -12,7 +12,6 @@ This directory contains the core functionality of the ObsyncIt tool.
   - Provides error handling and logging setup
 
 - `obsync.py`: Core synchronization functionality
-  - Implements the `ObsidianSettingsSync` class
   - Handles file operations and validation
   - Manages the sync workflow
 

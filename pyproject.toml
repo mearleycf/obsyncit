@@ -1,3 +1,16 @@
+[build-system]
+requires = ["setuptools>=69.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "obsyncit"
+version = "0.1.0"
+description = "Sync Obsidian vault settings between different vaults"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+readme = "README.md"
+authors = [{name = "Mike Earley"}]
+
 [tool.ruff]
 line-length = 100
 target-version = "py38"
@@ -34,4 +47,89 @@ include = '\.pyi?$'
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q --cov=obsyncit --cov-report=term-missing"
-testpaths = ["tests"] 
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pylint]
+max-line-length = 100
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name
+    "C0114",  # missing-module-docstring (covered by type hints)
+    "R0903",  # too-few-public-methods
+    "R0913",  # too-many-arguments
+    "W0511",  # fixme (TODO comments)
+]
+extension-pkg-allow-list = [
+    "pydantic"
+]
+good-names = [
+    "i",
+    "j",
+    "k",
+    "ex",
+    "Run",
+    "_",
+    "fp",
+    "id"
+]
+
+[tool.pylint.messages_control]
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name
+    "C0114",  # missing-module-docstring
+    "R0903",  # too-few-public-methods
+    "R0913",  # too-many-arguments
+]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.basic]
+good-names = ["i", "j", "k", "ex", "Run", "_", "fp", "id"]
+
+[tool.pylint.design]
+max-args = 8
+max-attributes = 8
+max-bool-expr = 5
+max-branches = 12
+max-locals = 15
+max-parents = 7
+max-public-methods = 20
+max-returns = 6
+max-statements = 50
+min-public-methods = 1
+
+[tool.coverage.run]
+source = ["obsyncit"]
+omit = ["tests/*", "setup.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise ImportError",
+]
