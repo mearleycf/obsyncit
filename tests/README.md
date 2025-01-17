@@ -1,167 +1,241 @@
 # ObsyncIt Test Suite
 
-This directory contains the test suite for the ObsyncIt tool.
+This directory contains the comprehensive test suite for ObsyncIt, ensuring reliability and correctness of all operations.
 
 ## Test Categories
 
 ### Unit Tests
-- `test_json_validation.py`: Tests for JSON schema validation
-  - Validates settings file formats
-  - Tests error handling for invalid JSON
-  - Ensures schema compliance
+- `test_vault.py`: Vault Management Tests
+  - Vault structure validation
+  - Settings file handling
+  - Path resolution
+  - Plugin management
+
+- `test_sync.py`: Sync Operation Tests
+  - File synchronization
+  - Directory handling
+  - Progress reporting
+  - Error recovery
+  - Atomic operations
+
+- `test_backup.py`: Backup System Tests
+  - Backup creation
+  - Restoration process
+  - Rotation policies
+  - Compression handling
+  - Error recovery
+
+- `test_vault_discovery.py`: Discovery Tests
+  - Platform-specific paths
+  - Vault detection
+  - Metadata extraction
+  - Cache management
 
 ### Integration Tests
-- `test_sync.py`: End-to-end sync tests
-  - Tests complete sync workflows
-  - Validates file operations
-  - Tests backup integration
+- `test_cli.py`: CLI Integration
+  - Command parsing
+  - Error handling
+  - Output formatting
+  - Exit codes
+  - Config loading
+
+- `test_tui.py`: TUI Integration
+  - Screen rendering
+  - User input handling
+  - Progress display
+  - Error presentation
+  - Navigation
 
 ### System Tests
-- `test_cli.py`: Command-line interface tests
-  - Tests argument parsing
-  - Tests command execution
-  - Tests exit codes
+- `test_e2e.py`: End-to-End Tests
+  - Complete sync workflows
+  - Real vault operations
+  - Error scenarios
+  - Recovery procedures
 
-### UI Tests
-- `test_tui.py`: Terminal UI tests
-  - Tests user interactions
-  - Tests display formatting
-  - Tests progress indicators
+### Performance Tests
+- `test_perf.py`: Performance Testing
+  - Large vault handling
+  - Memory usage
+  - CPU utilization
+  - IO operations
 
 ## Coverage Goals
 
 The project maintains strict test coverage requirements:
-- Overall coverage: 90%+ (current: 90%)
-- Critical paths: 100%
-  - Sync operations
-  - Backup operations
-  - Schema validation
-- UI components: 85%+
-- Error handlers: 100%
 
-Run coverage reports:
-```bash
-pytest --cov=obsyncit --cov-report=html
+### Core Functionality (100%)
+- Sync operations
+- Backup management
+- Vault operations
+- Schema validation
+
+### Supporting Features (90%+)
+- CLI interface
+- TUI components
+- Discovery system
+- Logging system
+
+### Error Handling (100%)
+- Custom exceptions
+- Recovery procedures
+- User feedback
+- System state
+
+## Test Configuration
+
+### pytest Configuration
+```ini
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = --cov=obsyncit --cov-report=html --cov-report=term-missing
+```
+
+### Coverage Configuration
+```ini
+[coverage:run]
+branch = True
+source = obsyncit
+
+[coverage:report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
 ```
 
 ## Test Data Management
 
 ### Fixtures
-- Use `conftest.py` for shared fixtures
-- Keep test data in `tests/data/`
-- Use temporary directories for file operations
-- Clean up test artifacts
-
-Example:
 ```python
 @pytest.fixture
 def sample_vault(tmp_path):
     """Create a sample vault with test data."""
-    vault_path = tmp_path / "test_vault"
-    vault_path.mkdir()
-    return vault_path
+    vault = tmp_path / "test_vault"
+    vault.mkdir()
+    return VaultFixture(vault)
+
+@pytest.fixture
+def mock_settings():
+    """Provide mock settings data."""
+    return {
+        "appearance.json": {"theme": "default"},
+        "app.json": {"spellcheck": True}
+    }
 ```
 
-### Mocking Guidelines
+### Test Utilities
+```python
+class VaultFixture:
+    """Helper class for vault testing."""
+    def __init__(self, path):
+        self.path = path
+        self.settings = {}
+    
+    def add_plugin(self, plugin_id, version="1.0.0"):
+        """Add a test plugin to the vault."""
+        pass
 
-1. **External Dependencies**
-   ```python
-   @pytest.fixture
-   def mock_file_system(mocker):
-       return mocker.patch('obsyncit.sync.os.path')
-   ```
-
-2. **Time-Dependent Tests**
-   ```python
-   @pytest.fixture
-   def mock_time(mocker):
-       return mocker.patch('obsyncit.backup.time.time')
-   ```
-
-3. **Network Operations**
-   ```python
-   @pytest.fixture
-   def mock_network(mocker):
-       return mocker.patch('obsyncit.sync.requests.get')
-   ```
-
-### Test Organization
-- Group related tests in classes
-- Use descriptive test names
-- Follow arrange-act-assert pattern
-
-### Test Configuration
-
-The test suite uses pytest and is configured in `pytest.ini` with the following features:
-- Verbose output
-- Code coverage reporting
-- HTML coverage reports
-- Logging configuration
+    def verify_state(self):
+        """Verify vault integrity."""
+        pass
+```
 
 ## Running Tests
 
 ### Basic Test Run
 ```bash
+# Run all tests
 pytest
+
+# Run specific test file
+pytest tests/test_sync.py
+
+# Run specific test class
+pytest tests/test_sync.py::TestSyncManager
+
+# Run specific test
+pytest tests/test_sync.py::TestSyncManager::test_sync_files
 ```
 
-### With Coverage
+### Coverage Reports
 ```bash
-pytest --cov=obsyncit --cov-report=html
-```
+# Generate HTML coverage report
+pytest --cov-report=html
 
-### Specific Test Files
-```bash
-pytest tests/test_json_validation.py
+# Show missing lines
+pytest --cov-report=term-missing
+
+# Generate XML report for CI
+pytest --cov-report=xml
 ```
 
 ## Writing Tests
 
-1. **Naming Conventions**
-   - Test files: `test_*.py`
-   - Test classes: `Test*`
-   - Test functions: `test_*`
+### Test Structure
+```python
+class TestSyncManager:
+    """Test suite for sync operations."""
+    
+    def test_sync_files(self, sample_vault):
+        """Test basic file synchronization."""
+        manager = SyncManager()
+        result = manager.sync_files(
+            source=sample_vault.path,
+            target=sample_vault.create_target()
+        )
+        assert result.success
+        assert result.files_synced > 0
+```
 
-2. **Test Organization**
-   - Group related tests in classes
-   - Use descriptive test names
-   - Follow arrange-act-assert pattern
+### Mocking Guidelines
+```python
+@pytest.fixture
+def mock_fs(mocker):
+    """Mock filesystem operations."""
+    return mocker.patch('obsyncit.sync.os.path')
 
-3. **Fixtures**
-   - Use pytest fixtures for setup/teardown
-   - Share common test data
-   - Mock external dependencies
+def test_with_mock(mock_fs):
+    """Test using mocked filesystem."""
+    mock_fs.exists.return_value = True
+    # Test implementation
+```
 
-4. **Coverage**
-   - Aim for high test coverage
+## CI Integration
+
+### GitHub Actions
+```yaml
+test:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: |
+        pip install -e ".[dev]"
+        pytest
+```
+
+## Contributing
+
+When adding or modifying tests:
+
+1. **Coverage**
+   - Maintain coverage goals
    - Test edge cases
    - Include error scenarios
+   - Test async operations
 
-## Integration Test Setup
+2. **Documentation**
+   - Document fixtures
+   - Explain test purpose
+   - Update README
+   - Add examples
 
-1. **Environment Setup**
-   ```bash
-   # Create test environment
-   python -m venv test_env
-   source test_env/bin/activate
-   pip install -e ".[dev]"
-   ```
-
-2. **Test Data**
-   ```bash
-   # Generate test vaults
-   python tests/utils/generate_test_data.py
-   ```
-
-3. **Run Integration Tests**
-   ```bash
-   pytest tests/integration/
-   ```
-
-## Test Dependencies
-
-Required packages for testing (installed with `pip install -e ".[dev]"`):
-- pytest
-- pytest-cov
-- pytest-mock
-- pytest-asyncio
+3. **Performance**
+   - Use appropriate fixtures
+   - Clean up resources
+   - Mock heavy operations
+   - Profile test runs

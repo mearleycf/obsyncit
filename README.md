@@ -17,41 +17,27 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
   - Dry-run mode to preview changes
   - Keeps last 5 backups by default
   - Detailed logging of all operations
+  - Vault discovery and validation
 
 - **Flexible Usage**:
   - Command-line interface for automation
-  - Interactive TUI for user-friendly operation
+  - Interactive TUI with real-time sync status
   - Selective syncing of specific settings
   - Backup restoration capabilities
+  - Multiple vault support with auto-discovery
 
 ## Installation
 
-1. Clone this repository:
+1. Install from PyPI (recommended):
+   ```bash
+   pip install obsyncit
+   ```
 
+2. Or install from source:
    ```bash
    git clone https://github.com/yourusername/obsyncit.git
    cd obsyncit
-   ```
-
-2. Create a virtual environment (recommended):
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Unix/macOS
-   # or
-   .venv\Scripts\activate  # On Windows
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. For development:
-
-   ```bash
-   pip install -e ".[dev]"
+   pip install -e ".[dev]"  # For development installation
    ```
 
 ## Usage
@@ -60,35 +46,29 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
 
 ```bash
 # Basic sync between vaults
-python -m obsyncit.main /path/to/source/vault /path/to/target/vault
+obsyncit sync /path/to/source/vault /path/to/target/vault
+
+# Auto-discover and list available vaults
+obsyncit discover
 
 # Dry run to preview changes
-python -m obsyncit.main /path/to/source/vault /path/to/target/vault --dry-run
+obsyncit sync /path/to/source/vault /path/to/target/vault --dry-run
 
 # Sync specific settings only
-python -m obsyncit.main /path/to/source/vault /path/to/target/vault --items themes plugins
+obsyncit sync /path/to/source/vault /path/to/target/vault --items themes plugins
 
 # Restore from backup
-python -m obsyncit.main /path/to/target/vault --restore latest
+obsyncit restore /path/to/target/vault --backup latest
+
+# Launch TUI interface
+obsyncit tui
 ```
 
-### TUI Interface
+### Configuration
 
-```bash
-python -m obsyncit.obsync_tui
-```
-
-The TUI provides an interactive interface for:
-
-- Selecting source and target vaults
-- Previewing sync operations
-- Performing dry runs
-- Executing syncs with visual feedback
-- Managing backups
-
-## Configuration
-
-Create a `config.toml` file to customize the sync behavior:
+Create a `config.toml` in your config directory:
+- Linux/macOS: `~/.config/obsyncit/config.toml`
+- Windows: `%APPDATA%\obsyncit\config.toml`
 
 ```toml
 [sync]
@@ -124,39 +104,59 @@ compression = "zip"
 
 ## Project Structure
 
-- `obsyncit/`: Core package directory
-  - `main.py`: CLI entry point
-  - `obsync.py`: Core sync functionality
-  - `obsync_tui.py`: TUI interface
-  - `sync.py`: Sync operations
-  - `backup.py`: Backup management
-  - `vault.py`: Vault operations
-  - `errors.py`: Error handling
-  - `schemas/`: JSON schemas and validation
-  - `logger.py`: Logging configuration
-
-- `tests/`: Test suite
-  - Unit tests
-  - Integration tests
-  - Test fixtures and utilities
+```
+obsyncit/
+├── main.py           # CLI entry point
+├── obsync_tui.py     # TUI interface
+├── sync.py          # Core sync operations
+├── backup.py        # Backup management
+├── vault.py         # Vault operations
+├── vault_discovery.py # Vault discovery logic
+├── errors.py        # Error handling
+├── logger.py        # Logging configuration
+└── schemas/         # JSON schemas
+    ├── appearance.json
+    ├── app.json
+    └── ...
+```
 
 ## Development
+
+### Setup Development Environment
+
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate    # On Windows
+
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Install pre-commit hooks
+pre-commit install
+```
 
 ### Running Tests
 
 ```bash
-pytest
-```
+# Run all tests with coverage
+pytest --cov=obsyncit
 
-This will run the test suite with coverage reporting.
+# Run specific test categories
+pytest tests/test_sync.py    # Sync tests
+pytest tests/test_backup.py  # Backup tests
+pytest tests/test_cli.py     # CLI tests
+```
 
 ### Code Style
 
-The project follows PEP 8 guidelines. Use the provided pre-commit hooks to maintain code quality:
-
-```bash
-pre-commit install
-```
+The project follows strict PEP 8 guidelines and uses:
+- Black for code formatting
+- isort for import sorting
+- flake8 for linting
+- mypy for type checking
 
 ## License
 
@@ -164,7 +164,7 @@ MIT License - See LICENSE file for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
