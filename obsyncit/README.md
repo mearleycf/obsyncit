@@ -7,17 +7,17 @@ This directory contains the core functionality of the ObsyncIt tool.
 ### Core Modules
 
 - `main.py`: Command-line interface entry point
-  - Implements CLI using Click
+  - Uses Python's argparse for CLI
   - Handles command routing and validation
   - Provides rich error messages and help text
   - Manages configuration loading
 
 - `obsync_tui.py`: Terminal User Interface
-  - Built with Textual framework
+  - Built with Rich library components
+  - Interactive console interface
   - Real-time sync status updates
-  - Interactive vault selection
   - Progress visualization
-  - Backup management interface
+  - Error presentation with tracebacks
 
 - `sync.py`: Core Sync Operations
   - Implements atomic sync operations

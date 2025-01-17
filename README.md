@@ -28,41 +28,59 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
 
 ## Installation
 
-1. Install from PyPI (recommended):
-   ```bash
-   pip install obsyncit
-   ```
+Currently, the package is only available for installation from source:
 
-2. Or install from source:
-   ```bash
-   git clone https://github.com/yourusername/obsyncit.git
-   cd obsyncit
-   pip install -e ".[dev]"  # For development installation
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/obsyncit.git
+cd obsyncit
+
+# Create and activate virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate    # On Windows
+
+# Install in development mode
+pip install -e .
+```
 
 ## Usage
 
-### Command Line Interface
+After installation, two commands will be available:
+
+### Command Line Interface (CLI)
 
 ```bash
 # Basic sync between vaults
-obsyncit sync /path/to/source/vault /path/to/target/vault
+obsyncit /path/to/source/vault /path/to/target/vault
 
 # Auto-discover and list available vaults
-obsyncit discover
+obsyncit --list-vaults
 
 # Dry run to preview changes
-obsyncit sync /path/to/source/vault /path/to/target/vault --dry-run
+obsyncit --dry-run /path/to/source/vault /path/to/target/vault
 
 # Sync specific settings only
-obsyncit sync /path/to/source/vault /path/to/target/vault --items themes plugins
+obsyncit --items themes plugins /path/to/source/vault /path/to/target/vault
 
 # Restore from backup
-obsyncit restore /path/to/target/vault --backup latest
-
-# Launch TUI interface
-obsyncit tui
+obsyncit --restore latest /path/to/target/vault
 ```
+
+### Terminal User Interface (TUI)
+
+```bash
+# Launch the interactive TUI
+obsyncit-tui
+```
+
+The TUI provides an interactive interface for:
+- Selecting source and target vaults
+- Previewing sync operations
+- Performing dry runs
+- Executing syncs with visual feedback
+- Managing backups
 
 ### Configuration
 
