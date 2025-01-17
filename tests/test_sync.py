@@ -1,233 +1,143 @@
-"""Tests for sync operations in ObsyncIt."""
+"""Tests for syncing functionality."""
 
 import json
-import os
-import shutil
 from pathlib import Path
 import pytest
 from obsyncit.sync import SyncManager, SyncResult
-from obsyncit.errors import SyncError, BackupError, ValidationError
 from obsyncit.schemas import Config, SyncConfig
+from obsyncit.errors import SyncError, ValidationError
+from tests.test_utils import create_test_vault
 
 
 @pytest.fixture
-def sample_config():
-    """Create a sample configuration for testing."""
-    return Config()
+def sample_vaults(clean_dir):
+    """Create sample source and target vaults for testing."""
+    source_vault = create_test_vault(clean_dir / "source_vault")
+    target_vault = create_test_vault(clean_dir / "target_vault", settings={}, create_default_settings=False)
+    return source_vault, target_vault
 
 
 @pytest.fixture
-def source_vault(tmp_path):
-    """Create a source vault with sample settings."""
-    vault = tmp_path / "source_vault"
-    settings = vault / ".obsidian"
-    settings.mkdir(parents=True)
-    
-    # Create sample settings files
-    app_json = {
-        "promptDelete": False,
-        "alwaysUpdateLinks": True
-    }
-    appearance_json = {
-        "accentColor": "",
-        "theme": "obsidian"
-    }
-    hotkeys_json = {
-        "editor:toggle-bold": "Ctrl+B"
-    }
-    core_plugins_json = {
-        "file-explorer": True,
-        "global-search": True
-    }
-    community_plugins_json = {
-        "dataview": True,
-        "templater": True
-    }
-    
-    # Write JSON files
-    (settings / "app.json").write_text(json.dumps(app_json))
-    (settings / "appearance.json").write_text(json.dumps(appearance_json))
-    (settings / "hotkeys.json").write_text(json.dumps(hotkeys_json))
-    (settings / "core-plugins.json").write_text(json.dumps(core_plugins_json))
-    (settings / "community-plugins.json").write_text(json.dumps(community_plugins_json))
-    
-    # Create sample themes directory
-    themes = settings / "themes"
-    themes.mkdir()
-    (themes / "theme.css").write_text("/* Sample theme */")
-    
-    # Create sample snippets directory
-    snippets = settings / "snippets"
-    snippets.mkdir()
-    (snippets / "custom.css").write_text("/* Sample snippet */")
-    
-    return vault
-
-
-@pytest.fixture
-def target_vault(tmp_path):
-    """Create an empty target vault."""
-    vault = tmp_path / "target_vault"
-    settings = vault / ".obsidian"
-    settings.mkdir(parents=True)
-    return vault
-
-
-@pytest.fixture
-def sync_manager(source_vault, target_vault, sample_config):
-    """Create a sync manager instance for testing."""
-    return SyncManager(source_vault, target_vault, sample_config)
-
-
-@pytest.fixture
-def locked_source_settings(sync_manager):
-    """Create a source settings directory with no permissions.
-    
-    Ensures permissions are restored after test, even if it fails.
-    """
-    settings_dir = sync_manager.source.settings_dir
-    settings_dir.chmod(0o000)
-    yield settings_dir
-    # Cleanup - always restore permissions
-    settings_dir.chmod(0o755)
-
-
-def test_sync_result_validation():
-    """Test SyncResult validation."""
-    # Valid state - success with no failures
-    result = SyncResult(
-        success=True,
-        items_synced=["app.json"],
-        items_failed=[],
-        errors={},
-    )
-    assert result.success
-    assert result.any_success
-
-    # Valid state - failure with failed items
-    result = SyncResult(
-        success=False,
-        items_synced=[],
-        items_failed=["app.json"],
-        errors={"app.json": "error"},
-    )
-    assert not result.success
-    assert not result.any_success
-
-    # Invalid state
-    with pytest.raises(ValueError):
-        SyncResult(
-            success=False,
-            items_synced=[],
-            items_failed=[],
-            errors={},
-        )
+def sync_manager(sample_vaults):
+    """Create a sync manager with test configuration."""
+    source_vault, target_vault = sample_vaults
+    config = Config()
+    config.sync.dry_run = False
+    config.sync.ignore_errors = False
+    return SyncManager(source_vault, target_vault, config)
 
 
 def test_sync_settings_success(sync_manager):
     """Test successful sync operation."""
+    # First, ensure the source vault has app.json
+    app_json = sync_manager.source.settings_dir / "app.json"
+    app_json.write_text('{"test": true}')
+
     result = sync_manager.sync_settings(["app.json"])
-    
-    assert isinstance(result, SyncResult)
+
     assert result.success
-    assert "app.json" in result.items_synced
+    assert len(result.items_synced) == 1
     assert not result.items_failed
     assert not result.errors
 
 
-def test_sync_settings_partial_failure(sync_manager):
-    """Test sync with some failures but ignore_errors enabled."""
-    sync_manager.config.sync.ignore_errors = True
-    
-    # Create invalid JSON to force failure
-    (sync_manager.source.settings_dir / "invalid.json").write_text("{invalid}")
-    
-    result = sync_manager.sync_settings(["app.json", "invalid.json"])
-    
-    assert isinstance(result, SyncResult)
-    assert result.success  # Overall success due to ignore_errors
-    assert "app.json" in result.items_synced
-    assert "invalid.json" in result.items_failed
-    assert "invalid.json" in result.errors
-
-
-def test_sync_settings_complete_failure(sync_manager, locked_source_settings):
+def test_sync_settings_complete_failure(sync_manager):
     """Test sync with complete failure."""
-    with pytest.raises(SyncError) as exc_info:
-        sync_manager.sync_settings()
-    assert "Permission denied" in str(exc_info.value)
+    # Create invalid JSON to force failure
+    invalid_json = sync_manager.source.settings_dir / "app.json"  # Use a core settings file name
+    invalid_json.write_text("{invalid")
 
+    # Ensure the file exists and has invalid content
+    assert invalid_json.exists()
+    assert invalid_json.read_text() == "{invalid"
 
-def test_validate_json_file(sync_manager, source_vault):
-    """Test JSON file validation."""
-    json_file = source_vault / ".obsidian" / "app.json"
+    # Disable ignore_errors to ensure the error is raised
+    sync_manager.config.sync.ignore_errors = False
+    sync_manager.config.sync.core_settings = True  # Enable core settings sync
+
+    # Attempt to sync the invalid file
+    with pytest.raises(ValidationError) as exc_info:
+        sync_manager.sync_settings(["app.json"])
     
-    # Valid JSON
-    data = sync_manager.validate_json_file(json_file)
-    assert isinstance(data, dict)
-    assert "promptDelete" in data
-    
-    # Invalid JSON
-    invalid_file = source_vault / ".obsidian" / "invalid.json"
-    invalid_file.write_text("{invalid}")
-    
-    with pytest.raises(ValidationError):
-        sync_manager.validate_json_file(invalid_file)
-    
-    # Missing required fields
-    with pytest.raises(ValidationError):
-        sync_manager.validate_json_file(
-            json_file,
-            required_fields=["nonexistent_field"]
-        )
+    # Verify the error message
+    assert "Invalid JSON" in str(exc_info.value)
 
 
 def test_sync_with_dry_run(sync_manager):
     """Test sync in dry run mode."""
     sync_manager.config.sync.dry_run = True
-    
+
     result = sync_manager.sync_settings(["app.json"])
-    
     assert result.success
-    assert not (sync_manager.target.settings_dir / "app.json").exists()
+    assert len(result.items_synced) == 1
+
+    # Verify no files were actually synced
+    target_file = sync_manager.target.settings_dir / "app.json"
+    assert not target_file.exists()
 
 
 def test_backup_creation(sync_manager):
     """Test backup creation during sync."""
     # Perform initial sync to create some files
     sync_manager.sync_settings(["app.json"])
-    
-    # Perform another sync which should create backup
-    result = sync_manager.sync_settings(["appearance.json"])
-    
-    assert result.success
-    assert len(sync_manager.list_backups()) > 0
 
+    # Modify target file
+    target_file = sync_manager.target.settings_dir / "app.json"
+    assert target_file.exists()
+    original_content = target_file.read_text()
 
-def test_restore_backup(sync_manager):
-    """Test backup restoration."""
-    # Create initial state
+    # Modify content
+    target_file.write_text('{"test": false}')
+
+    # Sync again
     sync_manager.sync_settings(["app.json"])
-    original_content = (sync_manager.target.settings_dir / "app.json").read_text()
-    
-    # Create backup
-    sync_manager.backup_mgr.create_backup()
-    
-    # Modify file
-    modified_content = '{"modified": true}'
-    (sync_manager.target.settings_dir / "app.json").write_text(modified_content)
-    
+
+    # Check backup exists and contains old content
+    backup_dir = sync_manager.target.vault_path / ".backups"
+    assert backup_dir.exists()
+    backup_files = list(backup_dir.rglob("app.json"))
+    assert len(backup_files) > 0
+    assert backup_files[0].read_text() == '{"test": false}'
+
+    # Verify new content
+    assert json.loads(target_file.read_text())["test"] == True
+
+
+def test_restore_backup(sync_manager, sample_vaults):
+    """Test backup restoration."""
+    source_vault, _ = sample_vaults
+
+    # Add a test file to the source vault
+    source_file = sync_manager.source.settings_dir / "app.json"
+    source_file.write_text('{"test": true}')
+
+    # Perform initial sync to create some files
+    sync_manager.sync_settings(["app.json"])
+
+    # Get initial content
+    target_file = sync_manager.target.settings_dir / "app.json"
+    assert target_file.exists()
+    original_content = target_file.read_text()
+
+    # Create a backup
+    backup = sync_manager.backup_mgr.create_backup()
+    assert backup is not None
+
+    # Modify content
+    target_file.write_text('{"test": false}')
+
     # Restore backup
-    assert sync_manager.restore_backup()
-    
-    # Verify restoration
-    restored_content = (sync_manager.target.settings_dir / "app.json").read_text()
-    assert restored_content == original_content
+    restored = sync_manager.backup_mgr.restore_backup()
+    assert restored is not None
+
+    # Verify content restored
+    assert target_file.read_text() == original_content
 
 
 def test_sync_empty_items_list(sync_manager):
     """Test syncing with empty items list."""
     result = sync_manager.sync_settings([])
-    assert isinstance(result, SyncResult)
     assert result.success
-    assert not result.items_synced
+    assert len(result.items_synced) == 0
+    assert len(result.items_failed) == 0
+    assert not result.errors

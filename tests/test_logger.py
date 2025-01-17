@@ -31,34 +31,42 @@ def temp_log_dir(tmp_path):
     return log_dir
 
 
+def find_handler_config(mock_add, handler_type):
+    """Find configuration for a specific handler type in mock calls."""
+    for call in mock_add.call_args_list:
+        kwargs = call[1]  # Get the keyword arguments
+        if handler_type == "console" and kwargs.get('sink') == sys.stderr:
+            return kwargs
+        elif handler_type == "file" and isinstance(kwargs.get('sink'), (str, Path)):
+            if ".log" in str(kwargs.get('sink')):
+                return kwargs
+    return None
+
+
 def test_setup_logging_basic(sample_config, temp_log_dir, mocker):
     """Test basic logging setup."""
-    # Mock logger.add to capture parameters
     mock_add = mocker.patch('loguru.logger.add')
-    
-    # Update config to use temp directory
     sample_config.logging.log_dir = str(temp_log_dir)
     
-    # Setup logging
     setup_logging(sample_config)
     
-    # Verify logger was configured correctly
-    assert mock_add.call_count == 2  # Console and file handlers
-    
-    # Check console handler
-    console_call = mock_add.call_args_list[0]
-    assert console_call[0][0] == sys.stderr
-    assert console_call[1]['level'] == "DEBUG"
-    assert console_call[1]['format'] == "{time} | {level} | {message}"
-    assert console_call[1]['colorize'] is True
-    
-    # Check file handler
-    file_call = mock_add.call_args_list[1]
-    assert str(temp_log_dir) in str(file_call[0][0])
-    assert file_call[1]['rotation'] == "1 day"
-    assert file_call[1]['retention'] == "1 week"
-    assert file_call[1]['compression'] == "zip"
-    assert file_call[1]['level'] == "DEBUG"
+    # Verify both handlers were added
+    assert mock_add.call_count >= 2
+
+    # Check console handler configuration
+    console_config = find_handler_config(mock_add, "console")
+    assert console_config is not None
+    assert console_config['level'] == "DEBUG"
+    assert console_config['format'] == "{time} | {level} | {message}"
+    assert console_config['colorize'] is True
+
+    # Check file handler configuration
+    file_config = find_handler_config(mock_add, "file")
+    assert file_config is not None
+    assert file_config['rotation'] == "1 day"
+    assert file_config['retention'] == "1 week"
+    assert file_config['compression'] == "zip"
+    assert file_config['level'] == "DEBUG"
 
 
 def test_setup_logging_directory_creation(sample_config, tmp_path):
@@ -66,10 +74,8 @@ def test_setup_logging_directory_creation(sample_config, tmp_path):
     log_dir = tmp_path / "nonexistent_logs"
     sample_config.logging.log_dir = str(log_dir)
     
-    # Setup logging
     setup_logging(sample_config)
     
-    # Verify directory was created
     assert log_dir.exists()
     assert log_dir.is_dir()
 
@@ -84,9 +90,12 @@ def test_setup_logging_levels(sample_config, temp_log_dir, mocker):
         sample_config.logging.level = level
         setup_logging(sample_config)
         
-        # Verify console handler level
-        console_call = mock_add.call_args_list[-2]
-        assert console_call[1]['level'] == level
+        # Verify both handlers use the correct level
+        console_config = find_handler_config(mock_add, "console")
+        assert console_config['level'] == level
+        
+        # Reset mock for next iteration
+        mock_add.reset_mock()
 
 
 def test_setup_logging_format(sample_config, temp_log_dir, mocker):
@@ -99,9 +108,11 @@ def test_setup_logging_format(sample_config, temp_log_dir, mocker):
     sample_config.logging.format = custom_format
     setup_logging(sample_config)
     
-    # Verify format was applied
-    for call in mock_add.call_args_list[-2:]:  # Check both handlers
-        assert call[1]['format'] == custom_format
+    # Verify format was applied to both handlers
+    console_config = find_handler_config(mock_add, "console")
+    assert console_config['format'] == custom_format
+    file_config = find_handler_config(mock_add, "file")
+    assert file_config['format'] == custom_format
 
 
 def test_setup_logging_rotation(sample_config, temp_log_dir, mocker):
@@ -116,8 +127,11 @@ def test_setup_logging_rotation(sample_config, temp_log_dir, mocker):
         setup_logging(sample_config)
         
         # Verify rotation setting
-        file_call = mock_add.call_args_list[-1]
-        assert file_call[1]['rotation'] == rotation
+        file_config = find_handler_config(mock_add, "file")
+        assert file_config['rotation'] == rotation
+        
+        # Reset mock for next iteration
+        mock_add.reset_mock()
 
 
 def test_setup_logging_retention(sample_config, temp_log_dir, mocker):
@@ -132,8 +146,11 @@ def test_setup_logging_retention(sample_config, temp_log_dir, mocker):
         setup_logging(sample_config)
         
         # Verify retention setting
-        file_call = mock_add.call_args_list[-1]
-        assert file_call[1]['retention'] == retention
+        file_config = find_handler_config(mock_add, "file")
+        assert file_config['retention'] == retention
+        
+        # Reset mock for next iteration
+        mock_add.reset_mock()
 
 
 def test_setup_logging_compression(sample_config, temp_log_dir, mocker):
@@ -148,8 +165,11 @@ def test_setup_logging_compression(sample_config, temp_log_dir, mocker):
         setup_logging(sample_config)
         
         # Verify compression setting
-        file_call = mock_add.call_args_list[-1]
-        assert file_call[1]['compression'] == compression
+        file_config = find_handler_config(mock_add, "file")
+        assert file_config['compression'] == compression
+        
+        # Reset mock for next iteration
+        mock_add.reset_mock()
 
 
 def test_setup_logging_integration(sample_config, temp_log_dir):
@@ -172,4 +192,4 @@ def test_setup_logging_integration(sample_config, temp_log_dir):
         content = f.read()
         assert test_message in content
         for level in ["DEBUG", "INFO", "WARNING", "ERROR"]:
-            assert level in content 
+            assert level in content

@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from obsyncit.backup import BackupManager
 from obsyncit.errors import BackupError
+from tests.test_utils import create_test_vault
+import json
 
 
 def cleanup_vault(path):
@@ -14,32 +16,20 @@ def cleanup_vault(path):
     try:
         if not path.exists():
             return
-        if path.is_file():
-            os.chmod(path, 0o644)
-            path.unlink()
-        else:
-            for item in path.iterdir():
-                cleanup_vault(item)
-            os.chmod(path, 0o755)
-            path.rmdir()
+        # Restore permissions recursively first
+        restore_permissions(path)
+        # Then remove everything
+        shutil.rmtree(path)
     except (PermissionError, FileNotFoundError):
         pass
 
 
 @pytest.fixture
-def temp_vault(tmp_path):
-    """Create a temporary vault directory with sample settings."""
-    vault = tmp_path / "test_vault"
-    vault.mkdir()
-    settings = vault / ".obsidian"
-    settings.mkdir()
-    
-    # Create some test files
-    test_file = settings / "test.json"
-    test_file.write_text('{"test": "data"}')
-    
-    yield vault
-    cleanup_vault(vault)
+def temp_vault(clean_dir):
+    """Create a temporary vault for testing."""
+    vault = clean_dir / "test_vault"
+    create_test_vault(vault)
+    return vault
 
 
 @pytest.fixture
@@ -85,8 +75,8 @@ def test_create_backup(backup_manager, temp_vault):
     # Verify backup contains settings
     backup_settings = backup_info.path / ".obsidian"
     assert backup_settings.exists()
-    assert (backup_settings / "test.json").exists()
-    assert (backup_settings / "test.json").read_text() == '{"test": "data"}'
+    assert (backup_settings / "app.json").exists()
+    assert json.loads((backup_settings / "app.json").read_text()) == {"test": True}
 
 
 def test_backup_rotation(backup_manager, temp_vault):
@@ -112,28 +102,28 @@ def test_restore_latest_backup(backup_manager, temp_vault):
     """Test restoring the latest backup."""
     # Get initial settings path
     settings_dir = temp_vault / ".obsidian"
-    test_file = settings_dir / "test.json"
+    test_file = settings_dir / "app.json"
 
     # Create backup of original content
     backup_path = backup_manager.create_backup()
     assert backup_path is not None
 
     # Modify file
-    test_file.write_text('{"test": "modified"}')
+    test_file.write_text('{"test": false}')
 
     # Restore backup
     restored_path = backup_manager.restore_backup()
     assert restored_path is not None
 
     # Verify file was restored
-    assert test_file.read_text() == '{"test": "data"}'
+    assert json.loads(test_file.read_text()) == {"test": True}
 
 
 def test_restore_specific_backup(backup_manager, temp_vault):
     """Test restoring a specific backup."""
     # Get settings path
     settings_dir = temp_vault / ".obsidian"
-    test_file = settings_dir / "test.json"
+    test_file = settings_dir / "app.json"
 
     # Create first backup
     backup1 = backup_manager.create_backup()
@@ -142,7 +132,7 @@ def test_restore_specific_backup(backup_manager, temp_vault):
     time.sleep(0.1)
 
     # Create second backup with different content
-    test_file.write_text('{"test": "version2"}')
+    test_file.write_text('{"test": false}')
     backup2 = backup_manager.create_backup()
     assert backup2 is not None
     time.sleep(0.1)
@@ -155,7 +145,7 @@ def test_restore_specific_backup(backup_manager, temp_vault):
     assert restored_path is not None
 
     # Verify correct version was restored
-    assert test_file.read_text() == '{"test": "data"}'
+    assert json.loads(test_file.read_text()) == {"test": True}
 
 
 def test_restore_nonexistent_backup(backup_manager, temp_vault):
