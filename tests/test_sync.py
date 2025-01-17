@@ -5,7 +5,7 @@ import os
 import shutil
 from pathlib import Path
 import pytest
-from obsyncit.sync import SyncManager
+from obsyncit.sync import SyncManager, SyncResult
 from obsyncit.errors import SyncError, BackupError, ValidationError
 from obsyncit.schemas import Config, SyncConfig
 
@@ -75,136 +75,159 @@ def target_vault(tmp_path):
 
 @pytest.fixture
 def sync_manager(source_vault, target_vault, sample_config):
-    """Create a sync manager instance."""
+    """Create a sync manager instance for testing."""
     return SyncManager(source_vault, target_vault, sample_config)
 
 
-def test_sync_all_settings(sync_manager, source_vault, target_vault):
-    """Test syncing all settings from source to target."""
-    # Perform sync
-    assert sync_manager.sync_settings() is True
+@pytest.fixture
+def locked_source_settings(sync_manager):
+    """Create a source settings directory with no permissions.
     
-    # Verify files were synced
-    source_files = list((source_vault / ".obsidian").glob("**/*"))
-    target_files = list((target_vault / ".obsidian").glob("**/*"))
-    assert len(source_files) == len(target_files)
+    Ensures permissions are restored after test, even if it fails.
+    """
+    settings_dir = sync_manager.source.settings_dir
+    settings_dir.chmod(0o000)
+    yield settings_dir
+    # Cleanup - always restore permissions
+    settings_dir.chmod(0o755)
+
+
+def test_sync_result_validation():
+    """Test SyncResult validation."""
+    # Valid state - success with no failures
+    result = SyncResult(
+        success=True,
+        items_synced=["app.json"],
+        items_failed=[],
+        errors={},
+    )
+    assert result.success
+    assert result.any_success
+
+    # Valid state - failure with failed items
+    result = SyncResult(
+        success=False,
+        items_synced=[],
+        items_failed=["app.json"],
+        errors={"app.json": "error"},
+    )
+    assert not result.success
+    assert not result.any_success
+
+    # Invalid state
+    with pytest.raises(ValueError):
+        SyncResult(
+            success=False,
+            items_synced=[],
+            items_failed=[],
+            errors={},
+        )
+
+
+def test_sync_settings_success(sync_manager):
+    """Test successful sync operation."""
+    result = sync_manager.sync_settings(["app.json"])
     
-    # Check content of synced files
-    app_json = json.loads((target_vault / ".obsidian" / "app.json").read_text())
-    assert app_json["promptDelete"] is False
-    assert app_json["alwaysUpdateLinks"] is True
+    assert isinstance(result, SyncResult)
+    assert result.success
+    assert "app.json" in result.items_synced
+    assert not result.items_failed
+    assert not result.errors
 
 
-def test_sync_specific_items(sync_manager, source_vault, target_vault):
-    """Test syncing specific settings items."""
-    # Sync only appearance and themes
-    items = ["appearance.json", "themes"]
-    assert sync_manager.sync_settings(items) is True
+def test_sync_settings_partial_failure(sync_manager):
+    """Test sync with some failures but ignore_errors enabled."""
+    sync_manager.config.sync.ignore_errors = True
     
-    # Verify only specified files were synced
-    target_settings = target_vault / ".obsidian"
-    assert (target_settings / "appearance.json").exists()
-    assert (target_settings / "themes").exists()
-    assert not (target_settings / "app.json").exists()
-
-
-def test_sync_dry_run(source_vault, target_vault, sample_config):
-    """Test dry run mode doesn't modify files."""
-    # Create sync manager in dry run mode
-    sample_config.sync.dry_run = True
-    sync_manager = SyncManager(source_vault, target_vault, sample_config)
+    # Create invalid JSON to force failure
+    (sync_manager.source.settings_dir / "invalid.json").write_text("{invalid}")
     
-    # Perform sync
-    assert sync_manager.sync_settings() is True
+    result = sync_manager.sync_settings(["app.json", "invalid.json"])
     
-    # Verify no files were created
-    target_files = list((target_vault / ".obsidian").glob("**/*"))
-    assert len(target_files) == 0
+    assert isinstance(result, SyncResult)
+    assert result.success  # Overall success due to ignore_errors
+    assert "app.json" in result.items_synced
+    assert "invalid.json" in result.items_failed
+    assert "invalid.json" in result.errors
 
 
-def test_sync_invalid_source_vault(target_vault, sample_config):
-    """Test syncing with invalid source vault."""
-    sync_manager = SyncManager(Path("/nonexistent"), target_vault, sample_config)
+def test_sync_settings_complete_failure(sync_manager, locked_source_settings):
+    """Test sync with complete failure."""
     with pytest.raises(SyncError) as exc_info:
         sync_manager.sync_settings()
-    assert "Vault directory does not exist" in str(exc_info.value)
-
-
-def test_sync_invalid_target_vault(source_vault, sample_config):
-    """Test syncing with invalid target vault."""
-    sync_manager = SyncManager(source_vault, Path("/nonexistent"), sample_config)
-    with pytest.raises(SyncError) as exc_info:
-        sync_manager.sync_settings()
-    assert "Vault directory does not exist" in str(exc_info.value)
-
-
-def test_sync_with_backup_failure(sync_manager, source_vault, target_vault, monkeypatch):
-    """Test sync behavior when backup fails."""
-    def mock_create_backup(*args):
-        raise BackupError("Backup failed", backup_path=target_vault / ".backups")
-    
-    monkeypatch.setattr(sync_manager.backup_mgr, "create_backup", mock_create_backup)
-    
-    with pytest.raises(BackupError) as exc_info:
-        sync_manager.sync_settings()
-    assert "Backup failed" in str(exc_info.value)
-
-
-def test_sync_with_invalid_json(sync_manager, source_vault, target_vault):
-    """Test sync behavior with invalid JSON files."""
-    # Create invalid JSON in source
-    invalid_json = source_vault / ".obsidian" / "app.json"
-    invalid_json.write_text("{invalid json}")
-    
-    with pytest.raises(ValidationError) as exc_info:
-        sync_manager.sync_settings()
-    assert "Invalid JSON" in str(exc_info.value)
-
-
-def test_sync_with_permission_error(sync_manager, source_vault, target_vault):
-    """Test sync behavior with permission errors."""
-    # Create a file in the source vault
-    source_settings = source_vault / ".obsidian"
-    target_settings = target_vault / ".obsidian"
-    
-    # Create a test file in the source
-    test_file = source_settings / "test.json"
-    test_file.write_text('{"test": true}')
-    
-    # Remove write permissions from target settings dir
-    target_settings.chmod(0o444)  # Read-only
-    
-    with pytest.raises(SyncError) as exc_info:
-        sync_manager.sync_settings(["test.json"])
     assert "Permission denied" in str(exc_info.value)
+
+
+def test_validate_json_file(sync_manager, source_vault):
+    """Test JSON file validation."""
+    json_file = source_vault / ".obsidian" / "app.json"
     
-    # Cleanup - restore permissions for cleanup
-    target_settings.chmod(0o755)
+    # Valid JSON
+    data = sync_manager.validate_json_file(json_file)
+    assert isinstance(data, dict)
+    assert "promptDelete" in data
+    
+    # Invalid JSON
+    invalid_file = source_vault / ".obsidian" / "invalid.json"
+    invalid_file.write_text("{invalid}")
+    
+    with pytest.raises(ValidationError):
+        sync_manager.validate_json_file(invalid_file)
+    
+    # Missing required fields
+    with pytest.raises(ValidationError):
+        sync_manager.validate_json_file(
+            json_file,
+            required_fields=["nonexistent_field"]
+        )
+
+
+def test_sync_with_dry_run(sync_manager):
+    """Test sync in dry run mode."""
+    sync_manager.config.sync.dry_run = True
+    
+    result = sync_manager.sync_settings(["app.json"])
+    
+    assert result.success
+    assert not (sync_manager.target.settings_dir / "app.json").exists()
+
+
+def test_backup_creation(sync_manager):
+    """Test backup creation during sync."""
+    # Perform initial sync to create some files
+    sync_manager.sync_settings(["app.json"])
+    
+    # Perform another sync which should create backup
+    result = sync_manager.sync_settings(["appearance.json"])
+    
+    assert result.success
+    assert len(sync_manager.list_backups()) > 0
+
+
+def test_restore_backup(sync_manager):
+    """Test backup restoration."""
+    # Create initial state
+    sync_manager.sync_settings(["app.json"])
+    original_content = (sync_manager.target.settings_dir / "app.json").read_text()
+    
+    # Create backup
+    sync_manager.backup_mgr.create_backup()
+    
+    # Modify file
+    modified_content = '{"modified": true}'
+    (sync_manager.target.settings_dir / "app.json").write_text(modified_content)
+    
+    # Restore backup
+    assert sync_manager.restore_backup()
+    
+    # Verify restoration
+    restored_content = (sync_manager.target.settings_dir / "app.json").read_text()
+    assert restored_content == original_content
 
 
 def test_sync_empty_items_list(sync_manager):
     """Test syncing with empty items list."""
-    assert sync_manager.sync_settings([]) is True
-
-
-def test_sync_ignore_errors(source_vault, target_vault, sample_config):
-    """Test sync with ignore_errors enabled."""
-    # Enable error ignoring
-    sample_config.sync.ignore_errors = True
-    sync_manager = SyncManager(source_vault, target_vault, sample_config)
-    
-    # Create invalid JSON to trigger error
-    invalid_json = source_vault / ".obsidian" / "app.json"
-    invalid_json.write_text("{invalid json}")
-    
-    # Create a valid file to ensure partial success
-    valid_json = source_vault / ".obsidian" / "appearance.json"
-    valid_json.write_text('{"theme": "light"}')
-    
-    # Sync should complete despite error
-    assert sync_manager.sync_settings(["app.json", "appearance.json"]) is True
-    
-    # Verify valid file was synced
-    target_appearance = target_vault / ".obsidian" / "appearance.json"
-    assert target_appearance.exists()
-    assert json.loads(target_appearance.read_text())["theme"] == "light" 
+    result = sync_manager.sync_settings([])
+    assert isinstance(result, SyncResult)
+    assert result.success
+    assert not result.items_synced

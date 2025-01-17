@@ -31,6 +31,13 @@ def test_file(tmp_path):
         file_path.chmod(0o644)
 
 
+@pytest.fixture
+def no_permission_file(test_file):
+    """Create a file with no permissions."""
+    test_file.chmod(0o000)
+    return test_file
+
+
 def test_obsync_error():
     """Test base error functionality."""
     error = ObsyncError("Test error")
@@ -102,27 +109,30 @@ def test_sync_error():
     assert str(error) == expected
 
 
-def test_handle_file_operation_error(test_file, caplog):
+def test_handle_file_operation_error(no_permission_file, caplog):
     """Test file operation error handler."""
     # Test permission error
-    test_file.chmod(0o000)
-    try:
-        with open(test_file, 'r') as f:
-            f.read()
-    except PermissionError as e:
-        handle_file_operation_error(e, "reading", test_file)
-    assert "Permission denied reading" in caplog.text
-    assert str(test_file) in caplog.text
+    with pytest.raises(ObsyncError) as exc_info:
+        try:
+            with open(no_permission_file, 'r') as f:
+                f.read()
+        except PermissionError as e:
+            handle_file_operation_error(e, "reading", no_permission_file)
+    assert "Permission denied reading" in str(exc_info.value)
+    assert str(no_permission_file) in str(exc_info.value)
+    assert str(no_permission_file) in caplog.text
     caplog.clear()
 
     # Test file not found error
-    nonexistent = test_file.parent / "nonexistent.json"
-    try:
-        with open(nonexistent, 'r') as f:
-            f.read()
-    except FileNotFoundError as e:
-        handle_file_operation_error(e, "reading", nonexistent)
-    assert "File not found:" in caplog.text
+    nonexistent = no_permission_file.parent / "nonexistent.json"
+    with pytest.raises(ObsyncError) as exc_info:
+        try:
+            with open(nonexistent, 'r') as f:
+                f.read()
+        except FileNotFoundError as e:
+            handle_file_operation_error(e, "reading", nonexistent)
+    assert "File not found" in str(exc_info.value)
+    assert str(nonexistent) in str(exc_info.value)
     assert str(nonexistent) in caplog.text
 
 
@@ -131,17 +141,22 @@ def test_handle_json_error(test_file, caplog):
     # Write invalid JSON
     test_file.write_text('{"invalid": json, missing: quotes}')
 
-    try:
-        with open(test_file) as f:
-            json.load(f)
-    except json.JSONDecodeError as e:
-        handle_json_error(e, test_file)
+    with pytest.raises(ValidationError) as exc_info:
+        try:
+            with open(test_file) as f:
+                json.load(f)
+        except json.JSONDecodeError as e:
+            handle_json_error(e, test_file)
 
-    # Verify error details are logged
-    assert "Invalid JSON in" in caplog.text
+    # Verify error message
+    assert "Invalid JSON format" in str(exc_info.value)
+    assert str(test_file) in str(exc_info.value)
+    assert "Line" in str(exc_info.value)
+    assert "Column" in str(exc_info.value)
+
+    # Verify logging
+    assert "Invalid JSON format" in caplog.text
     assert str(test_file) in caplog.text
-    assert "Line" in caplog.text
-    assert "Column" in caplog.text
     assert "Context:" in caplog.text
 
 
