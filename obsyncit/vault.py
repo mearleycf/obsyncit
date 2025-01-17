@@ -89,10 +89,12 @@ class VaultManager:
                     self.settings_dir
                 )
 
-            # Check for at least one settings file
-            if not any(self.settings_dir.glob("*.json")):
+            # Check if can access settings directory
+            try:
+                list(self.settings_dir.iterdir())
+            except (PermissionError, OSError) as e:
                 raise VaultError(
-                    "No settings files found in .obsidian directory",
+                    f"Cannot access settings directory: {e}",
                     self.settings_dir
                 )
 

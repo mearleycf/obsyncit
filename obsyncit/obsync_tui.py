@@ -246,8 +246,6 @@ class ObsidianSyncTUI:
 
             # Get confirmation and dry run preference
             dry_run = self.confirm_sync()
-            if not dry_run:
-                return
 
             # Configure sync
             config = Config()

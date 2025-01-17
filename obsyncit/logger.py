@@ -155,16 +155,19 @@ def setup_logging(config: Config) -> None:
     logger.remove()
 
     # Configure console logging
-    console_config = LoggerConfig(
+    # Configure console logging
+    logger.add(
         sink=sys.stderr,
         level=log_config.level,
         format=log_config.format,
         colorize=True,
+        backtrace=True,
+        diagnose=True
     )
-    _add_handler(console_config)
 
     # Configure file logging
-    file_config = LoggerConfig(
+    # Configure file logging
+    logger.add(
         sink=str(log_dir / "obsync_{time}.log"),
         level="DEBUG",  # Always use DEBUG for file logging
         format=log_config.format,
@@ -172,8 +175,9 @@ def setup_logging(config: Config) -> None:
         rotation=log_config.rotation,
         retention=log_config.retention,
         compression=log_config.compression,
+        backtrace=True,
+        diagnose=True
     )
-    _add_handler(file_config)
 
     logger.info("Logging configured successfully")
     logger.debug(f"Log directory: {log_dir}")

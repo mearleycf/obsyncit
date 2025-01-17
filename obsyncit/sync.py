@@ -162,12 +162,9 @@ class SyncManager:
             ValidationError: If JSON validation fails for any settings file
             BackupError: If backup creation fails and ignore_errors is False
         """
-        result = SyncResult(
-            success=True,
-            items_synced=[],
-            items_failed=[],
-            errors={},
-        )
+        items_synced = []
+        items_failed = []
+        errors = {}
 
         try:
             # Validate vaults
@@ -177,11 +174,25 @@ class SyncManager:
             if not self.config.sync.dry_run:
                 self._create_backup()
 
+            if not items:
+                logger.info("No items specified for sync")
+                return SyncResult(
+                    success=True,
+                    items_synced=[],
+                    items_failed=[],
+                    errors={}
+                )
+
             # Get list of items to sync
             sync_items = self._get_sync_items(items)
             if not sync_items:
-                logger.warning("No items to sync")
-                return result
+                logger.warning("No items found to sync")
+                return SyncResult(
+                    success=True,
+                    items_synced=[],
+                    items_failed=[],
+                    errors={}
+                )
 
             # Ensure target settings directory exists
             if not self.config.sync.dry_run:
@@ -190,17 +201,31 @@ class SyncManager:
             # Sync each item
             for item in sync_items:
                 try:
+                    logger.info(f"Starting sync of {item}")
                     self._sync_item(item)
-                    result.items_synced.append(item)
+                    items_synced.append(item)
+                    logger.info(f"Successfully synced {item}")
+                except (ValidationError, SyncError) as e:
+                    items_failed.append(item)
+                    errors[item] = str(e)
+                    logger.error(f"Failed to sync {item}: {str(e)}")
+                    if not self.config.sync.ignore_errors:
+                        raise
                 except Exception as e:
-                    result.items_failed.append(item)
-                    result.errors[item] = str(e)
+                    items_failed.append(item)
+                    errors[item] = str(e)
+                    logger.error(f"Failed to sync {item}: {str(e)}")
                     if not self.config.sync.ignore_errors:
                         raise
 
-            # Update success status
-            result.success = not result.items_failed or self.config.sync.ignore_errors
-            return result
+            # Create final result
+            success = not items_failed or self.config.sync.ignore_errors
+            return SyncResult(
+                success=success,
+                items_synced=items_synced,
+                items_failed=items_failed,
+                errors=errors,
+            )
 
         except Exception as e:
             logger.error(f"Sync failed: {str(e)}")
@@ -282,8 +307,11 @@ class SyncManager:
             if (self.source.settings_dir / "themes").exists():
                 sync_items.add("themes")
 
-        # Filter by user-specified items if provided
-        if items:
+        # If items is explicitly provided as empty list, return empty set
+        # If items is None, use defaults above, otherwise filter by provided items
+        if items is not None:
+            if not items:
+                return set()
             sync_items = {item for item in items if item in sync_items}
 
         return sync_items
@@ -380,25 +408,32 @@ class SyncManager:
             try:
                 # Validate JSON files
                 if item.endswith('.json'):
-                    self.validate_json_file(source_path)
+                    try:
+                        self.validate_json_file(source_path)
+                    except ValidationError as e:
+                        logger.warning(f"Invalid JSON: {item} - {str(e)}")
+                        raise  # Re-raise to be caught by outer try/except
 
                 # Copy file or directory
                 if not self.config.sync.dry_run:
-                    if source_path.is_file():
-                        shutil.copy2(source_path, target_path)
-                    else:
-                        shutil.copytree(source_path, target_path, dirs_exist_ok=True)
+                    try:
+                        if source_path.is_file():
+                            shutil.copy2(source_path, target_path)
+                        else:
+                            shutil.copytree(source_path, target_path, dirs_exist_ok=True)
+                    except Exception as e:
+                        raise SyncError(
+                            str(e),
+                            source=self.source.vault_path,
+                            target=self.target.vault_path
+                        )
                 else:
                     logger.info(f"Would sync: {item} (dry run)")
-
             except Exception as e:
-                if isinstance(e, (SyncError, ValidationError)):
+                if not self.config.sync.ignore_errors:
                     raise
-                raise SyncError(
-                    f"Failed to sync {item}: {str(e)}",
-                    source=self.source.vault_path,
-                    target=self.target.vault_path,
-                ) from e
+                logger.warning(f"Failed to sync {item}: {str(e)}")
+                raise  # Re-raise to be caught by outer try/except in sync_settings
 
     def list_backups(self) -> List[str]:
         """List available backups for the target vault.

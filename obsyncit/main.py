@@ -338,6 +338,29 @@ def main(args: Optional[Sequence[str]] = None) -> None:
         # Initialize logging
         setup_logging(config)
 
+        # Handle vault discovery
+        if cli_args.list_vaults or cli_args.search_path:
+            discovery = VaultDiscovery(cli_args.search_path)
+            vaults = discovery.find_vaults()
+            logger.info(f"Found {len(vaults)} vaults:")
+            for vault in vaults:
+                logger.info(f"  - {vault}")
+            sys.exit(ExitCode.SUCCESS.value)
+
+        # Handle interactive mode
+        if cli_args.interactive:
+            tui = ObsidianSyncTUI(
+                source_vault=cli_args.source_vault,
+                target_vault=cli_args.target_vault,
+                config=config,
+            )
+            if not tui.run():
+                sys.exit(ExitCode.GENERAL_ERROR.value)
+            sys.exit(ExitCode.SUCCESS.value)
+
+        # Update config with command line overrides
+        config.sync.dry_run = cli_args.dry_run
+
         # Initialize sync manager
         sync_manager = SyncManager(
             source_vault=cli_args.source_vault,
@@ -345,14 +368,11 @@ def main(args: Optional[Sequence[str]] = None) -> None:
             config=config,
         )
 
-        # Override dry run mode from command line
-        config.sync.dry_run = cli_args.dry_run
-
         # Handle different operations
         if cli_args.list_backups:
             backups = sync_manager.list_backups()
             print_backups(backups)
-            return
+            sys.exit(ExitCode.SUCCESS.value)
 
         if cli_args.restore:
             backup_path = (
@@ -361,7 +381,7 @@ def main(args: Optional[Sequence[str]] = None) -> None:
             )
             if not sync_manager.restore_backup(backup_path):
                 raise RuntimeError("Restore operation failed")
-            return
+            sys.exit(ExitCode.SUCCESS.value)
 
         # Perform sync
         result = sync_manager.sync_settings(cli_args.items)

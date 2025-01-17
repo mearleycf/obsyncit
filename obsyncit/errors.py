@@ -26,7 +26,7 @@ class ObsyncError(Exception):
     def full_message(self) -> str:
         """Get the complete error message with details."""
         if self.details:
-            return f"{self.message}\n{self.details}"
+            return f"{self.message}\nDetails: {self.details}"
         return self.message
 
     def __reduce__(self):
@@ -78,7 +78,7 @@ class ValidationError(ObsyncError):
         self.file_path = Path(file_path)
         self.schema_errors = errors
         error_parts = [f"File: {self.file_path}"]
-        error_parts.extend(errors)
+        error_parts.extend([f"- {error}" for error in errors])
         super().__init__(message, "\n".join(error_parts))
 
     def __reduce__(self):
@@ -132,16 +132,16 @@ def handle_file_operation_error(error: Exception, operation: str, path: Union[st
     if isinstance(error, PermissionError):
         logger.error(f"Permission denied {operation}")
         logger.debug(f"Path: {path_str}")
-        raise ObsyncError(f"Permission denied {operation}")
+        raise ObsyncError(f"Permission denied {operation}", f"Path: {path_str}")
     elif isinstance(error, FileNotFoundError):
         logger.error("File not found")
         logger.debug(f"Path: {path_str}")
-        raise ObsyncError(f"File not found: {path_str}")
+        raise ObsyncError(f"File not found", f"Path: {path_str}")
     else:
         logger.error(f"File operation failed: {operation}")
         logger.debug(f"Path: {path_str}")
         logger.debug(f"Error: {str(error)}")
-        raise ObsyncError(f"File operation failed: {operation}")
+        raise ObsyncError(f"File operation failed: {operation}", f"Path: {path_str}\nError: {str(error)}")
 
 
 def handle_json_error(error: Union[json.JSONDecodeError, Exception], file_path: Path) -> None:
