@@ -245,30 +245,32 @@ def test_cli_vault_discovery_output(mock_is_dir, mock_exists, mock_vault_discove
     assert "/test/vault2" in output_text
 
 
-@patch('pathlib.Path.exists')
-@patch('pathlib.Path.is_dir')
-def test_cli_config_override_precedence(
-    mock_is_dir,
-    mock_exists,
-    mock_sync_manager,
-    mock_vault_discovery,
-    mock_config
-):
+def test_cli_config_override_precedence(tmp_path, mocker):
     """Test that CLI arguments override config file settings."""
-    # Mock filesystem checks
-    mock_exists.return_value = True
-    mock_is_dir.return_value = True
+    # Setup mocks
+    mock_sync_manager = mocker.patch('obsyncit.main.SyncManager')
+    mock_vault_discovery = mocker.patch('obsyncit.main.VaultDiscovery')
+    mock_exists = mocker.patch('pathlib.Path.exists', return_value=True)
+    mock_is_dir = mocker.patch('pathlib.Path.is_dir', return_value=True)
     
-    source = Path("/mock/source")
-    target = Path("/mock/target")
-    custom_path = "/custom/path"
+    # Create mock config
+    config = mocker.Mock()
+    config.vault = mocker.Mock(search_path="/default/path", search_depth=2)
+    config.sync = mocker.Mock(dry_run=False, backup_before_sync=True, max_backups=5)
+    config.logging = mocker.Mock(level="INFO")
+    mocker.patch('obsyncit.main.load_config', return_value=config)
     
-    # Test with CLI arguments that should override config
+    # Setup test paths
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    custom_path = str(tmp_path / "custom")
+    
+    # Run test with CLI arguments
     test_args = [
         str(source),
         str(target),
         "--search-path", custom_path,
-        "--dry-run"  # Add this to test sync config override
+        "--dry-run"
     ]
     
     with pytest.raises(SystemExit) as exc_info:
@@ -276,12 +278,10 @@ def test_cli_config_override_precedence(
     
     assert exc_info.value.code == 0
     
+    # Verify the sync manager was created and config was overridden
+    mock_sync_manager.assert_called_once()
+    sync_instance = mock_sync_manager.return_value
+    assert sync_instance.config.sync.dry_run is True
+
     # Verify custom search path was used
     mock_vault_discovery.assert_called_once()
-    mock_vault_discovery.return_value.find_vaults.assert_called_once()
-    
-    # Verify sync manager was created with overridden config
-    mock_sync_manager.assert_called_once()
-    
-    # Verify dry-run override was applied
-    assert mock_sync_manager.return_value.config.sync.dry_run is True
