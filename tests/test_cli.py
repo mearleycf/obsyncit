@@ -10,7 +10,7 @@ from obsyncit.main import main
 from obsyncit.errors import ConfigError
 from obsyncit.vault_discovery import VaultDiscovery
 from obsyncit.obsync_tui import ObsidianSyncTUI
-from tests.test_utils import create_test_vault, clean_directory
+from tests.test_utils import create_test_vault
 
 
 @pytest.fixture(autouse=True)
@@ -69,12 +69,16 @@ def mock_tui(mocker):
     return mock
 
 
-def test_cli_basic_sync(mock_sync_manager, clean_dir):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+def test_cli_basic_sync(mock_is_dir, mock_exists, mock_sync_manager):
     """Test basic sync from CLI."""
-    source = clean_dir / "source"
-    target = clean_dir / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    
+    source = Path("/mock/source")
+    target = Path("/mock/target")
     
     with pytest.raises(SystemExit) as exc_info:
         main([str(source), str(target)])
@@ -83,13 +87,17 @@ def test_cli_basic_sync(mock_sync_manager, clean_dir):
     mock_sync_manager.return_value.sync_settings.assert_called_once()
 
 
-def test_cli_search_path(mock_vault_discovery, clean_dir):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+def test_cli_search_path(mock_is_dir, mock_exists, mock_vault_discovery):
     """Test CLI with custom search path."""
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    
     search_path = "/custom/search/path"
-    source = clean_dir / "source"
-    target = clean_dir / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    source = Path("/mock/source")
+    target = Path("/mock/target")
     
     output = io.StringIO()
     with patch('sys.stderr', output), pytest.raises(SystemExit) as exc_info:
@@ -99,12 +107,16 @@ def test_cli_search_path(mock_vault_discovery, clean_dir):
     mock_vault_discovery.return_value.find_vaults.assert_called_once()
 
 
-def test_cli_interactive_mode(mock_tui, clean_dir):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+def test_cli_interactive_mode(mock_is_dir, mock_exists, mock_tui):
     """Test CLI in interactive mode."""
-    source = clean_dir / "source"
-    target = clean_dir / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    
+    source = Path("/mock/source")
+    target = Path("/mock/target")
     
     with pytest.raises(SystemExit) as exc_info:
         main(["--interactive", str(source), str(target)])
@@ -113,12 +125,16 @@ def test_cli_interactive_mode(mock_tui, clean_dir):
     mock_tui.return_value.run.assert_called_once()
 
 
-def test_cli_list_backups(mock_sync_manager, clean_dir, monkeypatch):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+def test_cli_list_backups(mock_is_dir, mock_exists, mock_sync_manager):
     """Test listing backups."""
-    source = clean_dir / "source"
-    target = clean_dir / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    
+    source = Path("/mock/source")
+    target = Path("/mock/target")
 
     # Set up mock backups
     mock_sync_manager.return_value.list_backups.return_value = [
@@ -140,12 +156,16 @@ def test_cli_list_backups(mock_sync_manager, clean_dir, monkeypatch):
     mock_sync_manager.return_value.list_backups.assert_called_once()
 
 
-def test_cli_restore_backup(mock_sync_manager, tmp_path, monkeypatch):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+def test_cli_restore_backup(mock_is_dir, mock_exists, mock_sync_manager):
     """Test restoring from backup."""
-    source = tmp_path / "source"
-    target = tmp_path / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    
+    source = Path("/mock/source")
+    target = Path("/mock/target")
 
     test_args = [
         "obsyncit",
@@ -158,18 +178,27 @@ def test_cli_restore_backup(mock_sync_manager, tmp_path, monkeypatch):
 
     # Verify restore was called and exit code is 0
     assert exc_info.value.code == 0
-    mock_sync_manager.return_value.restore_backup.assert_called_once()
+    mock_sync_manager.return_value.restore_backup.assert_called_once_with(Path("backup_20240101"))
 
 
-def test_cli_invalid_config(tmp_path, monkeypatch):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+@patch('pathlib.Path.read_text')
+def test_cli_invalid_config(mock_read_text, mock_is_dir, mock_exists):
     """Test handling of invalid configuration."""
-    config_file = tmp_path / "config.toml"
-    config_file.write_text("invalid = {")
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    mock_read_text.return_value = "invalid = {"
+    
+    config_file = Path("/mock/config.toml")
+    source = Path("/mock/source")
+    target = Path("/mock/target")
 
     test_args = [
         "obsyncit",
-        str(tmp_path / "source"),  # source_vault as positional arg
-        str(tmp_path / "target"),  # target_vault as positional arg
+        str(source),  # source_vault as positional arg
+        str(target),  # target_vault as positional arg
         "--config", str(config_file)
     ]
     with patch.object(sys, 'argv', test_args), pytest.raises(SystemExit) as exc_info:
@@ -177,12 +206,22 @@ def test_cli_invalid_config(tmp_path, monkeypatch):
     assert exc_info.value.code == 3  # ConfigError exit code
 
 
-def test_cli_vault_discovery_output(mock_vault_discovery, tmp_path):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+def test_cli_vault_discovery_output(mock_is_dir, mock_exists, mock_vault_discovery):
     """Test vault discovery output formatting."""
-    source = tmp_path / "source"
-    target = tmp_path / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
+    
+    source = Path("/mock/source")
+    target = Path("/mock/target")
+    
+    # Mock vault discovery to return test paths
+    mock_vault_discovery.return_value.find_vaults.return_value = [
+        Path("/test/vault1"),
+        Path("/test/vault2")
+    ]
     
     output = io.StringIO()
     with patch('sys.stderr', output), pytest.raises(SystemExit) as exc_info:
@@ -196,25 +235,70 @@ def test_cli_vault_discovery_output(mock_vault_discovery, tmp_path):
     assert "/test/vault2" in output_text
 
 
-def test_cli_config_override_precedence(mock_vault_discovery, tmp_path):
+@patch('pathlib.Path.exists')
+@patch('pathlib.Path.is_dir')
+@patch('pathlib.Path.read_text')
+def test_cli_config_override_precedence(mock_read_text, mock_is_dir, mock_exists, mock_sync_manager, mock_vault_discovery):
     """Test that CLI arguments override config file settings."""
-    config_file = tmp_path / "config.toml"
-    config_file.write_text("""
-    [vault]
-    search_path = "/default/path"
-    search_depth = 2
-    """)
+    # Mock filesystem checks
+    mock_exists.return_value = True
+    mock_is_dir.return_value = True
     
-    source = tmp_path / "source"
-    target = tmp_path / "target"
-    create_test_vault(source)
-    create_test_vault(target)
+    # Mock valid TOML config with all required sections
+    mock_read_text.return_value = """[vault]
+search_path = "/default/path"
+search_depth = 2
+
+[sync]
+dry_run = false
+backup_before_sync = true
+max_backups = 5
+
+[logging]
+level = "INFO"
+"""
     
+    config_file = Path("/mock/config.toml")
+    source = Path("/mock/source")
+    target = Path("/mock/target")
     custom_path = "/custom/path"
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--config", str(config_file), "--search-path", custom_path, str(source), str(target)])
+    
+    # Mock vault discovery to return test paths
+    mock_vault_discovery.return_value.find_vaults.return_value = [
+        Path("/test/vault1"),
+        Path("/test/vault2")
+    ]
+    
+    # Mock sync manager success
+    mock_sync_manager.return_value.sync_settings.return_value = Mock(
+        success=True,
+        items_synced=["test.json"],
+        items_failed=[],
+        errors={},
+        any_success=True,
+        summary="Sync successful"
+    )
+    
+    test_args = [
+        "obsyncit",
+        str(source),  # source_vault as positional arg
+        str(target),  # target_vault as positional arg
+        "--config", str(config_file),
+        "--search-path", custom_path
+    ]
+    
+    output = io.StringIO()
+    with patch('sys.stderr', output), pytest.raises(SystemExit) as exc_info:
+        main(test_args)
     assert exc_info.value.code == 0
     
     # Verify custom path was used instead of config file path
     mock_vault_discovery.assert_called_once()
-    mock_vault_discovery.return_value.find_vaults.assert_called_once()
+    mock_vault_discovery.return_value.find_vaults.assert_called_once_with(
+        Path(custom_path),  # Should use CLI arg path, not config file path
+        max_depth=2  # This comes from config file
+    )
+    
+    # Verify sync was attempted
+    mock_sync_manager.assert_called_once()
+    mock_sync_manager.return_value.sync_settings.assert_called_once()
