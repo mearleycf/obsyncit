@@ -52,10 +52,11 @@ def mock_sync_manager(mocker):
     mock_instance.restore_backup.return_value = True
     
     # Mock config object with property to track dry_run changes
-    config = Mock()
-    config.sync = Mock()
-    config.sync.dry_run = False
-    mock_instance.config = config
+    config_mock = Mock()
+    config_mock.sync = Mock()
+    config_mock.sync.dry_run = False
+    
+    mock_instance.config = config_mock
     
     mock.return_value = mock_instance
     return mock
