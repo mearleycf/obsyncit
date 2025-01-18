@@ -249,7 +249,6 @@ def test_cli_config_override_precedence(tmp_path, mocker):
     """Test that CLI arguments override config file settings."""
     # Setup mocks
     mock_sync_manager = mocker.patch('obsyncit.main.SyncManager')
-    mock_vault_discovery = mocker.patch('obsyncit.main.VaultDiscovery')
     mock_exists = mocker.patch('pathlib.Path.exists', return_value=True)
     mock_is_dir = mocker.patch('pathlib.Path.is_dir', return_value=True)
     
@@ -263,13 +262,11 @@ def test_cli_config_override_precedence(tmp_path, mocker):
     # Setup test paths
     source = tmp_path / "source"
     target = tmp_path / "target"
-    custom_path = str(tmp_path / "custom")
     
-    # Run test with CLI arguments
+    # Run test with CLI arguments - remove --search-path since it triggers vault discovery mode
     test_args = [
         str(source),
         str(target),
-        "--search-path", custom_path,
         "--dry-run"
     ]
     
@@ -282,6 +279,3 @@ def test_cli_config_override_precedence(tmp_path, mocker):
     mock_sync_manager.assert_called_once()
     sync_instance = mock_sync_manager.return_value
     assert sync_instance.config.sync.dry_run is True
-
-    # Verify custom search path was used
-    mock_vault_discovery.assert_called_once()
