@@ -73,8 +73,8 @@ class Arguments:
     """Command line arguments for the application.
     
     Attributes:
-        source_vault: Path to the source Obsidian vault
-        target_vault: Path to the target Obsidian vault
+        source_vault: Optional path to the source Obsidian vault
+        target_vault: Optional path to the target Obsidian vault
         config: Path to the configuration file
         dry_run: Whether to simulate changes without making them
         items: Optional list of specific items to sync
@@ -84,8 +84,8 @@ class Arguments:
         search_path: Custom path to search for Obsidian vaults
         interactive: Whether to run in interactive mode with TUI
     """
-    source_vault: Path
-    target_vault: Path
+    source_vault: Optional[Path]
+    target_vault: Optional[Path]
     config: Path
     dry_run: bool
     items: Optional[List[str]]
@@ -131,19 +131,21 @@ examples:
   obsyncit --restore ~/vault1 ~/vault2
 
   # List available vaults
-  obsyncit --list-vaults ~/vault1 ~/vault2
+  obsyncit --list-vaults
 
   # Use custom search path
-  obsyncit --search-path ~/vaults ~/vault1 ~/vault2''',
+  obsyncit --list-vaults --search-path ~/vaults''',
     )
     parser.add_argument(
         "source_vault",
         type=Path,
+        nargs="?",
         help="Path to the source Obsidian vault",
     )
     parser.add_argument(
         "target_vault",
         type=Path,
+        nargs="?",
         help="Path to the target Obsidian vault",
     )
     parser.add_argument(
@@ -190,9 +192,15 @@ examples:
     )
 
     parsed_args = parser.parse_args(args)
+
+    # Validate arguments
+    if not (parsed_args.list_vaults or parsed_args.interactive):
+        if not parsed_args.source_vault or not parsed_args.target_vault:
+            parser.error("source_vault and target_vault are required unless using --list-vaults or --interactive")
+
     return Arguments(
-        source_vault=parsed_args.source_vault,
-        target_vault=parsed_args.target_vault,
+        source_vault=parsed_args.source_vault if hasattr(parsed_args, 'source_vault') else None,
+        target_vault=parsed_args.target_vault if hasattr(parsed_args, 'target_vault') else None,
         config=parsed_args.config,
         dry_run=parsed_args.dry_run,
         items=parsed_args.items,
