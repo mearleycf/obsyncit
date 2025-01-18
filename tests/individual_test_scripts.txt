@@ -1,10 +1,9 @@
-pytest -v 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M).log.txt
-pytest -v tests/test_backup.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_backup.log.txt
-pytest -v tests/test_cli.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_cli.log.txt
-pytest -v tests/test_config.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_config.log.txt
-pytest -v tests/test_conftest.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_conftest.log.txt
-pytest -v tests/test_errors.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_errors.log.txt
-pytest -v tests/test_main.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_main.log.txt
-pytest -v tests/test_obsidian.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_obsidian.log.txt
-pytest -v tests/test_sync.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_sync.log.txt
-pytest -v tests/test_utils.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_utils.log.txt
+pytest -v 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M).log.txt && python logs/archive_logs.py
+pytest -v tests/test_backup.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_backup.log.txt && python logs/archive_logs.py
+pytest -v tests/test_cli.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_cli.log.txt && python logs/archive_logs.py
+pytest -v tests/test_errors.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_errors.log.txt && python logs/archive_logs.py
+pytest -v tests/test_json_validation.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_json_validation.log.txt && python logs/archive_logs.py
+pytest -v tests/test_logger.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_logger.log.txt && python logs/archive_logs.py
+pytest -v tests/test_sync.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_sync.log.txt  && python logs/archive_logs.py
+pytest -v tests/test_tui.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_tui.log.txt && python logs/archive_logs.py
+pytest -v tests/test_vault_discovery.py 2>&1 | tee logs/test_logs_$(date +%Y-%m-%d_%H-%M)_vault_discovery.log.txt && python logs/archive_logs.py
