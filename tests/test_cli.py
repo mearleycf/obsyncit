@@ -279,3 +279,7 @@ def test_cli_config_override_precedence(tmp_path, mocker):
     mock_sync_manager.assert_called_once()
     sync_instance = mock_sync_manager.return_value
     assert sync_instance.config.sync.dry_run is True
+    # Verify that sync_settings was called
+    sync_instance.sync_settings.assert_called_once()
+    # Verify that the mock config was updated
+    assert sync_instance.config.sync.dry_run is True
