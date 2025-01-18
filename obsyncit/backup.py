@@ -163,34 +163,59 @@ class BackupManager:
             BackupError: If backup creation fails
         """
         try:
-            # Create backup directory if it doesn't exist
-            self.backup_dir.mkdir(exist_ok=True)
-
-            # Check if there are settings to backup
+            # Check if there are settings to backup first
             if not self.settings_dir.exists() or not any(self.settings_dir.iterdir()):
                 logger.info("No settings to backup - skipping backup creation")
                 return None
 
+            # Create backup directory if it doesn't exist
+            try:
+                self.backup_dir.mkdir(exist_ok=True)
+            except Exception as e:
+                logger.error(f"Failed to create backup directory: {e}")
+                raise BackupError("Failed to create backup directory", backup_path=self.backup_dir)
+
             # Create timestamped backup directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             backup_path = self.backup_dir / f"backup_{timestamp}"
-            backup_path.mkdir(exist_ok=True)
-
+            
             # Copy settings to backup
             backup_settings_dir = backup_path / ".obsidian"
-            shutil.copytree(self.settings_dir, backup_settings_dir)
+            try:
+                shutil.copytree(self.settings_dir, backup_settings_dir)
+            except Exception as e:
+                logger.error(f"Failed to copy settings: {e}")
+                if backup_path.exists():
+                    try:
+                        shutil.rmtree(backup_path)
+                    except Exception:
+                        pass  # Ignore cleanup errors
+                raise BackupError("Failed to create backup", backup_path=self.settings_dir)
 
             # Clean up old backups
-            self._cleanup_old_backups()
+            try:
+                self._cleanup_old_backups()
+            except Exception as e:
+                logger.warning(f"Failed to clean up old backups: {e}")
+                # Continue since the backup was successful
 
             # Create and log backup info
-            backup_info = BackupInfo.from_backup_path(backup_path)
-            logger.info(f"Created backup:\n{backup_info}")
-            return backup_info
+            try:
+                backup_info = BackupInfo.from_backup_path(backup_path)
+                logger.info(f"Created backup:\n{backup_info}")
+                return backup_info
+            except Exception as e:
+                logger.error(f"Failed to create backup info: {e}")
+                return BackupInfo(
+                    path=backup_path,
+                    timestamp=datetime.now(),
+                    size_bytes=0,
+                    settings_count=0
+                )
 
         except Exception as e:
             raise BackupError(
-                f"Failed to create backup: {str(e)}",
+                "Failed to create backup",
                 backup_path=self.settings_dir,
             ) from e
 
@@ -221,7 +246,11 @@ class BackupManager:
                 )
 
             # Get backup info for logging
-            backup_info = BackupInfo.from_backup_path(backup_to_restore)
+            try:
+                backup_info = BackupInfo.from_backup_path(backup_to_restore)
+            except Exception as e:
+                logger.error(f"Failed to get backup info: {e}")
+                raise BackupError("Invalid backup format", backup_path=backup_to_restore)
 
             # Verify backup contains settings
             backup_settings = backup_to_restore / ".obsidian"
@@ -233,14 +262,32 @@ class BackupManager:
 
             # Create backup of current settings before restore
             if self.settings_dir.exists():
-                self.create_backup()
+                try:
+                    self.create_backup()
+                except Exception as e:
+                    logger.warning(f"Failed to backup current settings before restore: {e}")
+                    # Continue with restore even if backup fails
 
-            # Remove current settings directory
-            if self.settings_dir.exists():
-                shutil.rmtree(self.settings_dir)
+            # Replace current settings with backup
+            try:
+                if self.settings_dir.exists():
+                    try:
+                        shutil.rmtree(self.settings_dir)
+                    except Exception as e:
+                        logger.error(f"Failed to remove existing settings: {e}")
+                        raise BackupError("Failed to prepare for restore", backup_path=backup_to_restore)
 
-            # Copy backup settings to vault
-            shutil.copytree(backup_settings, self.settings_dir)
+                shutil.copytree(backup_settings, self.settings_dir)
+            except Exception as e:
+                logger.error(f"Failed to restore settings: {e}")
+                # Try to recreate empty settings directory if restore fails
+                try:
+                    if not self.settings_dir.exists():
+                        self.settings_dir.mkdir(parents=True)
+                except Exception:
+                    pass  # Ignore recreation errors
+                raise BackupError("Failed to restore backup", backup_path=backup_to_restore)
+
             logger.info(f"Restored settings from backup:\n{backup_info}")
             return backup_info
 
@@ -248,7 +295,7 @@ class BackupManager:
             if isinstance(e, BackupError):
                 raise
             raise BackupError(
-                f"Failed to restore backup: {str(e)}",
+                "Failed to restore backup",
                 backup_path=backup_path or self.backup_dir,
             ) from e
 
@@ -279,7 +326,7 @@ class BackupManager:
             )
 
         except Exception as e:
-            logger.error(f"Error listing backups: {str(e)}")
+            logger.error(f"Error listing backups: {e}")
             return []
 
     def _get_backup_path(self, backup_path: Optional[Path | str] = None) -> Optional[Path]:
@@ -308,10 +355,7 @@ class BackupManager:
             return backups[0].path
 
         except Exception as e:
-            logger.error(
-                f"Error getting backup path: {str(e)}"
-                f" (path: {backup_path or self.backup_dir})"
-            )
+            logger.error(f"Error getting backup path: {e}")
             return None
 
     def _cleanup_old_backups(self) -> None:
@@ -330,9 +374,7 @@ class BackupManager:
                             shutil.rmtree(old_backup.path)
                             logger.debug(f"Removed old backup:\n{old_backup}")
                     except Exception as e:
-                        logger.warning(
-                            f"Error removing old backup {old_backup.path}: {str(e)}"
-                        )
+                        logger.warning(f"Failed to remove old backup: {e}")
 
         except Exception as e:
-            logger.error(f"Error cleaning up backups: {str(e)}")
+            logger.error(f"Error cleaning up backups: {e}")

@@ -21,8 +21,7 @@ Example:
 
 Typical usage example:
     The VaultDiscovery class is typically used to locate Obsidian vaults before
-    performing sync operations. It handles various edge cases like permission errors,
-    invalid vaults, and depth limits.
+    performing sync operations.
 """
 
 from dataclasses import dataclass
@@ -53,8 +52,7 @@ class VaultDiscovery:
     """Discovers Obsidian vaults in the filesystem.
     
     This class provides methods to recursively search directories for Obsidian
-    vaults and gather information about them. It handles edge cases like
-    permission errors and invalid vault directories.
+    vaults and gather information about them.
 
     Attributes:
         search_path: The root path to start searching from
@@ -92,14 +90,12 @@ class VaultDiscovery:
 
         try:
             for path in root.iterdir():
-                if not path.is_dir() or path.name.startswith('.'):
-                    continue
-                yield (path, current_depth)
-                yield from self._iter_directories(path, current_depth + 1)
-        except PermissionError:
-            logger.debug(f"Permission denied: {root}")
-        except Exception as e:
-            logger.debug(f"Error accessing directory {root}: {str(e)}")
+                if path.is_dir() and not path.name.startswith('.'):
+                    yield (path, current_depth)
+                    yield from self._iter_directories(path, current_depth + 1)
+        except Exception:
+            # Skip directories we can't access
+            return
 
     def is_valid_vault(self, path: Path) -> bool:
         """Check if a path is a valid Obsidian vault.
@@ -112,20 +108,22 @@ class VaultDiscovery:
         Returns:
             True if the path contains a valid Obsidian vault
         """
-        obsidian_dir = path / ".obsidian"
-        if not obsidian_dir.is_dir():
+        try:
+            obsidian_dir = path / ".obsidian"
+            if not obsidian_dir.exists():
+                return False
+            
+            # Check for at least one settings file
+            settings_files = list(obsidian_dir.glob("*.json"))
+            return len(settings_files) > 0
+        except Exception:
             return False
-        
-        # Check for at least one settings file
-        settings_files = list(obsidian_dir.glob("*.json"))
-        return len(settings_files) > 0
 
     def find_vaults(self) -> List[Path]:
         """Find all Obsidian vaults under the search path.
         
         This method recursively searches directories up to max_depth,
-        identifying valid Obsidian vaults. It handles permission errors
-        and invalid directories gracefully.
+        identifying valid Obsidian vaults.
 
         Returns:
             List of paths to valid Obsidian vaults
@@ -138,18 +136,11 @@ class VaultDiscovery:
         logger.info(f"Searching for vaults in: {self.search_path}")
         vaults: List[Path] = []
         
-        try:
-            # Search all directories
-            for path, depth in self._iter_directories(self.search_path, 0):
-                try:
-                    if self.is_valid_vault(path):
-                        logger.debug(f"Found vault: {path}")
-                        vaults.append(path)
-                except Exception as e:
-                    logger.debug(f"Error checking vault at {path}: {str(e)}")
-                    
-        except Exception as e:
-            logger.debug(f"Error during vault search: {str(e)}")
+        # Search all directories
+        for path, depth in self._iter_directories(self.search_path, 0):
+            if self.is_valid_vault(path):
+                logger.debug(f"Found vault: {path}")
+                vaults.append(path)
         
         logger.info(f"Found {len(vaults)} vaults")
         return vaults
@@ -163,15 +154,12 @@ class VaultDiscovery:
 
         Returns:
             VaultInfo containing metadata about the vault
-
-        Raises:
-            VaultError: If the vault is invalid or inaccessible
         """
         try:
             vault = VaultManager(vault_path)
             settings_files = len(list(vault.settings_dir.glob("*.json")))
             plugins_dir = vault.settings_dir / "plugins"
-            plugin_count = len(list(plugins_dir.glob("*"))) if plugins_dir.is_dir() else 0
+            plugin_count = len(list(plugins_dir.glob("*"))) if plugins_dir.exists() else 0
 
             return VaultInfo(
                 name=vault_path.name,
@@ -179,8 +167,8 @@ class VaultDiscovery:
                 settings_count=settings_files,
                 plugin_count=plugin_count
             )
-        except Exception as e:
-            logger.debug(f"Error getting vault info for {vault_path}: {e}")
+        except Exception:
+            # Return basic info if we can't access the vault
             return VaultInfo(
                 name=vault_path.name,
                 path=str(vault_path),

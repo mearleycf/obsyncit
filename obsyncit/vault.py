@@ -54,8 +54,8 @@ class VaultManager:
         """Validate that this is a valid Obsidian vault.
 
         This method checks:
-        - Vault directory exists and is readable
-        - .obsidian directory exists and is readable
+        - Vault directory exists
+        - .obsidian directory exists
         - At least one settings file exists
 
         Returns:
@@ -71,30 +71,16 @@ class VaultManager:
                     self.vault_path
                 )
 
-            if not self.vault_path.is_dir():
-                raise VaultError(
-                    "Vault path is not a directory",
-                    self.vault_path
-                )
-
             if not self.settings_dir.exists():
                 raise VaultError(
                     "No .obsidian directory found",
                     self.settings_dir
                 )
 
-            if not self.settings_dir.is_dir():
+            # Check if there are any settings files
+            if not any(self.settings_dir.glob("*.json")):
                 raise VaultError(
-                    ".obsidian path is not a directory",
-                    self.settings_dir
-                )
-
-            # Check if can access settings directory
-            try:
-                list(self.settings_dir.iterdir())
-            except (PermissionError, OSError) as e:
-                raise VaultError(
-                    f"Cannot access settings directory: {e}",
+                    "No settings files found",
                     self.settings_dir
                 )
 

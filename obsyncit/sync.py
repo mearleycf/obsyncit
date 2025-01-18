@@ -240,7 +240,6 @@ class SyncManager:
         Raises:
             SyncError: If either vault is invalid or inaccessible
         """
-
         validation_errors: List[str] = []
         
         if not self.source.validate_vault():
@@ -341,10 +340,10 @@ class SyncManager:
             
         try:
             data = json.loads(file_path.read_text())
-        except (PermissionError, OSError) as e:
-            raise ObsyncError(f"Failed to read file: {e}", str(file_path))
         except json.JSONDecodeError as e:
             raise ValidationError("Invalid JSON", file_path, [str(e)])
+        except Exception as e:
+            raise ObsyncError(f"Failed to read file", str(file_path))
             
         if required_fields:
             missing = [f for f in required_fields if f not in data]
@@ -423,7 +422,7 @@ class SyncManager:
                             shutil.copytree(source_path, target_path, dirs_exist_ok=True)
                     except Exception as e:
                         raise SyncError(
-                            str(e),
+                            "Failed to copy item",
                             source=self.source.vault_path,
                             target=self.target.vault_path
                         )
