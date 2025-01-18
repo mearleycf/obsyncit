@@ -5,6 +5,7 @@ This directory contains the comprehensive test suite for ObsyncIt, ensuring reli
 ## Test Categories
 
 ### Unit Tests
+
 - `test_vault.py`: Vault Management Tests
   - Vault structure validation
   - Settings file handling
@@ -32,6 +33,7 @@ This directory contains the comprehensive test suite for ObsyncIt, ensuring reli
   - Cache management
 
 ### Integration Tests
+
 - `test_cli.py`: CLI Integration
   - Command parsing
   - Error handling
@@ -47,6 +49,7 @@ This directory contains the comprehensive test suite for ObsyncIt, ensuring reli
   - Navigation
 
 ### System Tests
+
 - `test_e2e.py`: End-to-End Tests
   - Complete sync workflows
   - Real vault operations
@@ -54,6 +57,7 @@ This directory contains the comprehensive test suite for ObsyncIt, ensuring reli
   - Recovery procedures
 
 ### Performance Tests
+
 - `test_perf.py`: Performance Testing
   - Large vault handling
   - Memory usage
@@ -65,18 +69,21 @@ This directory contains the comprehensive test suite for ObsyncIt, ensuring reli
 The project maintains strict test coverage requirements:
 
 ### Core Functionality (100%)
+
 - Sync operations
 - Backup management
 - Vault operations
 - Schema validation
 
 ### Supporting Features (90%+)
+
 - CLI interface
 - TUI components
 - Discovery system
 - Logging system
 
 ### Error Handling (100%)
+
 - Custom exceptions
 - Recovery procedures
 - User feedback
@@ -85,6 +92,7 @@ The project maintains strict test coverage requirements:
 ## Test Configuration
 
 ### pytest Configuration
+
 ```ini
 [pytest]
 testpaths = tests
@@ -95,6 +103,7 @@ addopts = --cov=obsyncit --cov-report=html --cov-report=term-missing
 ```
 
 ### Coverage Configuration
+
 ```ini
 [coverage:run]
 branch = True
@@ -110,6 +119,7 @@ exclude_lines =
 ## Test Data Management
 
 ### Fixtures
+
 ```python
 @pytest.fixture
 def sample_vault(tmp_path):
@@ -128,6 +138,7 @@ def mock_settings():
 ```
 
 ### Test Utilities
+
 ```python
 class VaultFixture:
     """Helper class for vault testing."""
@@ -147,6 +158,7 @@ class VaultFixture:
 ## Running Tests
 
 ### Basic Test Run
+
 ```bash
 # Run all tests
 pytest
@@ -162,6 +174,7 @@ pytest tests/test_sync.py::TestSyncManager::test_sync_files
 ```
 
 ### Coverage Reports
+
 ```bash
 # Generate HTML coverage report
 pytest --cov-report=html
@@ -176,6 +189,7 @@ pytest --cov-report=xml
 ## Writing Tests
 
 ### Test Structure
+
 ```python
 class TestSyncManager:
     """Test suite for sync operations."""
@@ -192,6 +206,7 @@ class TestSyncManager:
 ```
 
 ### Mocking Guidelines
+
 ```python
 @pytest.fixture
 def mock_fs(mocker):
@@ -207,6 +222,7 @@ def test_with_mock(mock_fs):
 ## CI Integration
 
 ### GitHub Actions
+
 ```yaml
 test:
   runs-on: ubuntu-latest

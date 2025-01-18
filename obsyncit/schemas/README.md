@@ -7,6 +7,7 @@ This directory contains JSON schemas used for validating Obsidian settings files
 ### Core Settings Schemas
 
 - `appearance.json`: Theme and UI Settings
+
   ```json
   {
     "theme": "string",
@@ -18,6 +19,7 @@ This directory contains JSON schemas used for validating Obsidian settings files
   ```
 
 - `app.json`: Application Configuration
+
   ```json
   {
     "alwaysUpdateLinks": "boolean",
@@ -29,6 +31,7 @@ This directory contains JSON schemas used for validating Obsidian settings files
   ```
 
 - `community-plugins.json`: Plugin Management
+
   ```json
   {
     "installed": {
@@ -43,6 +46,7 @@ This directory contains JSON schemas used for validating Obsidian settings files
   ```
 
 - `hotkeys.json`: Keyboard Shortcuts
+
   ```json
   {
     "editor:toggle-bold": "string[]",

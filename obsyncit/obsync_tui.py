@@ -19,7 +19,8 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+import argparse
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -68,7 +69,37 @@ class VaultPaths:
     target_exists: bool = False
 
 
-class SyncProgress:
+class ProgressInterface:
+    """Abstract base class for progress indicators."""
+
+    def __enter__(self) -> "ProgressInterface":
+        """Enter the context manager."""
+        self.start()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the context manager."""
+        self.stop()
+
+    def start(self) -> None:
+        """Start the progress indicator."""
+        raise NotImplementedError
+
+    def stop(self) -> None:
+        """Stop the progress indicator."""
+        raise NotImplementedError
+
+    def update(self, description: str, completed: bool = False) -> None:
+        """Update progress status.
+        
+        Args:
+            description: New progress description
+            completed: Whether the task is completed
+        """
+        raise NotImplementedError
+
+
+class SyncProgress(ProgressInterface):
     """Manages progress indication during sync operations."""
 
     def __init__(self, console: Console):
@@ -85,32 +116,67 @@ class SyncProgress:
         )
         self.task_id: Optional[TaskID] = None
 
-    def __enter__(self) -> "SyncProgress":
-        """Start progress context."""
+    def start(self) -> None:
+        """Start the progress display."""
         self.progress.start()
-        return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Clean up progress display."""
+    def stop(self) -> None:
+        """Stop the progress display."""
         self.progress.stop()
 
-    def start(self, description: str) -> None:
-        """Start a new progress task.
+    def update(self, description: str, completed: bool = False) -> None:
+        """Update progress status.
         
         Args:
-            description: Task description to display
+            description: New progress description
+            completed: Whether the task is completed
         """
-        self.task_id = self.progress.add_task(description, total=None)
+        if self.task_id is None:
+            self.task_id = self.progress.add_task(description, total=None)
+        self.progress.update(self.task_id, description=description, completed=completed)
+
+
+class MockProgress(ProgressInterface):
+    """Mock progress indicator for testing."""
+
+    def __init__(self):
+        """Initialize mock progress."""
+        self.started = False
+        self.stopped = False
+        self.updates: List[tuple[str, bool]] = []
+
+    def start(self) -> None:
+        """Start the mock progress."""
+        self.started = True
+
+    def stop(self) -> None:
+        """Stop the mock progress."""
+        self.stopped = True
+
+    def update(self, description: str, completed: bool = False) -> None:
+        """Record a progress update.
+        
+        Args:
+            description: Progress description
+            completed: Whether the task is completed
+        """
+        self.updates.append((description, completed))
 
 
 class ObsidianSyncTUI:
     """Text User Interface for Obsidian Settings Sync."""
 
-    def __init__(self, search_path: Optional[Path] = None):
+    def __init__(
+        self,
+        search_path: Optional[Path] = None,
+        progress_factory: Optional[type[ProgressInterface]] = None
+    ):
         """Initialize the TUI.
         
         Args:
             search_path: Optional path to search for vaults. Defaults to current directory.
+            progress_factory: Optional factory for creating progress indicators.
+                           Defaults to SyncProgress.
         """
         self.console = Console(theme=Theme({
             "info": Style.INFO.value,
@@ -120,6 +186,17 @@ class ObsidianSyncTUI:
         }))
         self.vault_discovery = VaultDiscovery(search_path or Path.cwd())
         self.config = Config()
+        self._progress_factory = progress_factory or SyncProgress
+
+    def create_progress(self) -> ProgressInterface:
+        """Create a progress indicator instance.
+        
+        Returns:
+            A new progress indicator instance
+        """
+        if self._progress_factory == SyncProgress:
+            return self._progress_factory(self.console)
+        return self._progress_factory()
 
     def display_header(self) -> None:
         """Display application header."""
@@ -134,11 +211,14 @@ class ObsidianSyncTUI:
         
         Returns:
             VaultPaths containing selected paths and their status
+        
+        Raises:
+            SystemExit: If no vaults are found or if an invalid selection is made
         """
-        with SyncProgress(self.console) as progress:
-            progress.start("[green]Searching for vaults...")
+        with self.create_progress() as progress:
+            progress.update("[green]Searching for vaults...")
             available_vaults = self.vault_discovery.find_vaults()
-            progress.progress.update(progress.task_id, completed=True)
+            progress.update("[green]Search complete", completed=True)
 
         if not available_vaults:
             self.console.print(
@@ -160,14 +240,36 @@ class ObsidianSyncTUI:
         source_idx = int(Prompt.ask(
             f"[{Style.INFO.value}]Select source vault (1-{len(available_vaults)})[/]"
         )) - 1
+
+        if not (0 <= source_idx < len(available_vaults)):
+            self.console.print(
+                f"[{Style.ERROR.value}]Invalid selection. Please choose a number between 1 and {len(available_vaults)}[/]"
+            )
+            sys.exit(1)
+
         source_vault = available_vaults[source_idx]
 
         # Get target vault
-        remaining_vaults = [v for i, v in enumerate(available_vaults) if i != source_idx]
-        target_idx = int(Prompt.ask(
-            f"[{Style.INFO.value}]Select target vault (1-{len(remaining_vaults)})[/]"
-        )) - 1
-        target_vault = remaining_vaults[target_idx]
+        while True:
+            target_idx = int(Prompt.ask(
+                f"[{Style.INFO.value}]Select target vault (1-{len(available_vaults)})[/]"
+            )) - 1
+
+            if not (0 <= target_idx < len(available_vaults)):
+                self.console.print(
+                    f"[{Style.ERROR.value}]Invalid selection. Please choose a number between 1 and {len(available_vaults)}[/]"
+                )
+                continue
+
+            if target_idx == source_idx:
+                self.console.print(
+                    f"[{Style.ERROR.value}]Source and target vaults must be different. Please select a different vault.[/]"
+                )
+                continue
+
+            break
+
+        target_vault = available_vaults[target_idx]
 
         return VaultPaths(
             source=source_vault,
@@ -226,7 +328,7 @@ class ObsidianSyncTUI:
         proceed = Confirm.ask(
             f"\n[{Style.WARNING.value}]Ready to proceed with "
             f"{'dry run' if dry_run_confirmed else 'sync'}?[/]",
-            default=False,
+            default=True,
         )
 
         if not proceed:
@@ -235,8 +337,75 @@ class ObsidianSyncTUI:
 
         return dry_run_confirmed
 
-    def run(self) -> None:
-        """Run the TUI application."""
+    def display_sync_results(self, result: Any, dry_run: bool = True) -> None:
+        """Display the results of a sync operation.
+        
+        Args:
+            result: The sync operation result
+            dry_run: Whether this was a dry run
+        """
+        operation = "Dry run" if dry_run else "Sync"
+        
+        if result.success:
+            # Create results table
+            table = Table(
+                title=f"{operation} Results",
+                show_header=True,
+                header_style=Style.INFO.value,
+            )
+            table.add_column("Item", style=Style.INFO.value)
+            table.add_column("Status", style=Style.SUCCESS.value)
+            table.add_column("Details", style=Style.DIM.value)
+
+            # Add sync details
+            if result.synced_items:
+                for item, details in result.synced_items.items():
+                    table.add_row(
+                        str(item),
+                        Status.SUCCESS.value,
+                        str(details) if details else "No changes needed"
+                    )
+            else:
+                table.add_row(
+                    "No items",
+                    Status.PENDING.value,
+                    "No items were specified for sync"
+                )
+
+            self.console.print(table)
+            self.console.print(
+                f"[{Style.SUCCESS.value}]"
+                f"{Status.SUCCESS.value} "
+                f"{operation} completed successfully![/]"
+            )
+        else:
+            error_table = Table(
+                title=f"{operation} Errors",
+                show_header=True,
+                header_style=Style.ERROR.value,
+            )
+            error_table.add_column("Item", style=Style.ERROR.value)
+            error_table.add_column("Error", style=Style.DIM.value)
+
+            if result.errors:
+                for item, error in result.errors.items():
+                    error_table.add_row(str(item), str(error))
+            else:
+                error_table.add_row("General", str(result))
+
+            self.console.print(error_table)
+            self.console.print(
+                f"[{Style.ERROR.value}]"
+                f"{Status.FAILURE.value} "
+                f"{operation} failed![/]"
+            )
+
+    def run(self) -> bool:
+        """Run the TUI application.
+        
+        Returns:
+            True if sync was successful, False otherwise
+        """
         try:
             self.display_header()
 
@@ -254,56 +423,46 @@ class ObsidianSyncTUI:
             # Perform sync
             sync_mgr = SyncManager(paths.source, paths.target, config)
             
-            with SyncProgress(self.console) as progress:
-                progress.start("[green]Syncing vault settings...")
+            with self.create_progress() as progress:
+                progress.update("[green]Syncing vault settings...")
                 result = sync_mgr.sync_settings()
 
-            if result.success:
-                self.console.print(
-                    f"[{Style.SUCCESS.value}]"
-                    f"{Status.SUCCESS.value} "
-                    f"{'Dry run completed' if dry_run else 'Sync completed'} "
-                    f"successfully![/]"
-                )
-                if dry_run:
-                    # Offer to perform actual sync
-                    if self.confirm_sync(dry_run=False):
-                        config.sync.dry_run = False
-                        with SyncProgress(self.console) as progress:
-                            progress.start("[green]Syncing vault settings...")
-                            result = sync_mgr.sync_settings()
-                            if result.success:
-                                self.console.print(
-                                    f"[{Style.SUCCESS.value}]"
-                                    f"{Status.SUCCESS.value} "
-                                    f"Sync completed successfully![/]"
-                                )
-                            else:
-                                self.console.print(
-                                    f"[{Style.ERROR.value}]"
-                                    f"{Status.FAILURE.value} "
-                                    f"Sync failed: {result.errors}[/]"
-                                )
-            else:
-                self.console.print(
-                    f"[{Style.ERROR.value}]"
-                    f"{Status.FAILURE.value} "
-                    f"{'Dry run' if dry_run else 'Sync'} failed: {result.errors}[/]"
-                )
+            self.display_sync_results(result, dry_run)
+
+            if result.success and dry_run:
+                # Offer to perform actual sync
+                if self.confirm_sync(dry_run=False):
+                    config.sync.dry_run = False
+                    with self.create_progress() as progress:
+                        progress.update("[green]Syncing vault settings...")
+                        result = sync_mgr.sync_settings()
+                        self.display_sync_results(result, dry_run=False)
+
+            return result.success
 
         except Exception as e:
             self.console.print(f"[{Style.ERROR.value}]Error: {str(e)}[/]")
             if isinstance(e, ObsyncError):
                 self.console.print(f"[{Style.DIM.value}]Details: {e.details}[/]")
             self.console.print_exception()
-            sys.exit(1)
+            return False
 
 
 def main() -> None:
     """Entry point for the TUI application."""
+    parser = argparse.ArgumentParser(
+        description="Interactive TUI for Obsidian Settings Sync",
+    )
+    parser.add_argument(
+        "--search-path",
+        type=Path,
+        help="Custom path to search for Obsidian vaults",
+    )
+    args = parser.parse_args()
+
     setup_logging(Config())
-    tui = ObsidianSyncTUI()
-    tui.run()
+    tui = ObsidianSyncTUI(search_path=args.search_path)
+    sys.exit(0 if tui.run() else 1)
 
 
 if __name__ == "__main__":

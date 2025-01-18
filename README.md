@@ -76,6 +76,7 @@ obsyncit-tui
 ```
 
 The TUI provides an interactive interface for:
+
 - Selecting source and target vaults
 - Previewing sync operations
 - Performing dry runs
@@ -85,6 +86,7 @@ The TUI provides an interactive interface for:
 ### Configuration
 
 Create a `config.toml` in your config directory:
+
 - Linux/macOS: `~/.config/obsyncit/config.toml`
 - Windows: `%APPDATA%\obsyncit\config.toml`
 
@@ -171,6 +173,7 @@ pytest tests/test_cli.py     # CLI tests
 ### Code Style
 
 The project follows strict PEP 8 guidelines and uses:
+
 - Black for code formatting
 - isort for import sorting
 - flake8 for linting
