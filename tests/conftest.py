@@ -6,21 +6,36 @@ import stat
 from pathlib import Path
 import pytest
 from typing import Generator
+import time
 
 
-def handle_remove_readonly(func, path, exc):
-    """Handle permission errors during directory removal."""
-    if func in (os.rmdir, os.remove, os.unlink) and exc[1].errno == 13:  # errno.EACCES = 13
+def force_remove_dir(path: Path) -> None:
+    """Force remove a directory and its contents."""
+    if not path.exists():
+        return
+
+    # First pass: make everything writable
+    for root, dirs, files in os.walk(str(path)):
+        for dir_name in dirs:
+            dir_path = Path(root) / dir_name
+            try:
+                dir_path.chmod(stat.S_IRWXU)
+            except:
+                pass
+        for file_name in files:
+            file_path = Path(root) / file_name
+            try:
+                file_path.chmod(stat.S_IRWXU)
+            except:
+                pass
+
+    # Second pass: actually remove everything
+    for _ in range(3):  # Try up to 3 times
         try:
-            # Change file/directory permissions
-            os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-            func(path)  # Try again
+            shutil.rmtree(path)
+            break
         except:
-            # If still can't delete, make directory writable
-            os.chmod(path, stat.S_IWRITE)
-            func(path)
-    else:
-        raise
+            time.sleep(0.1)  # Wait a bit before retrying
 
 
 def pytest_configure(config):
@@ -33,17 +48,20 @@ def pytest_configure(config):
 @pytest.fixture(autouse=True)
 def cleanup_temp_files():
     """Clean up temporary files and directories after each test."""
+    # Let the test run
     yield
+
     # Clean up temp directories
     temp_base = Path('/private/var/folders/lq/b2s6mqss6t1c2mttbrtwxvz40000gn/T/pytest-of-mikeearley')
     if temp_base.exists():
         for temp_dir in temp_base.glob('garbage-*'):
-            try:
-                if temp_dir.is_dir():
-                    # Remove read-only files and directories
-                    shutil.rmtree(temp_dir, ignore_errors=True, onerror=handle_remove_readonly)
-            except:
-                pass
+            if temp_dir.is_dir():
+                force_remove_dir(temp_dir)
+            elif temp_dir.is_file():
+                try:
+                    temp_dir.unlink()
+                except:
+                    pass
 
 
 @pytest.fixture
@@ -60,11 +78,22 @@ def clean_dir(tmp_path) -> Generator[Path, None, None]:
     test_dir.mkdir(parents=True, exist_ok=True)
     yield test_dir
     
-    # Enhanced cleanup with error handling
     if test_dir.exists():
-        try:
-            # Ensure write permissions and remove directory
-            shutil.rmtree(test_dir, ignore_errors=True, onerror=handle_remove_readonly)
-        except Exception:
-            # If cleanup fails, don't fail the test
-            pass
+        force_remove_dir(test_dir)
+
+
+@pytest.fixture
+def clean_test_dir(clean_dir: Path) -> Generator[Path, None, None]:
+    """Fixture ensuring test directory is properly cleaned up.
+    
+    This is a more robust version of clean_dir that handles permission issues.
+    
+    Args:
+        clean_dir: Base clean directory fixture
+        
+    Yields:
+        Path to a clean test directory
+    """
+    yield clean_dir
+    if clean_dir.exists():
+        force_remove_dir(clean_dir)
