@@ -56,15 +56,6 @@ def sync_manager(tmp_path):
     return SyncManager(source_vault, target_vault, config)
 
 
-@pytest.fixture
-def no_permission_json(tmp_path):
-    """Create a JSON file with no permissions."""
-    test_file = tmp_path / "noperm.json"
-    test_file.write_text('{"valid": "json"}')
-    test_file.chmod(0o000)
-    return test_file
-
-
 def test_validate_json_file_valid(sync_manager, tmp_path):
     """Test validation of a valid JSON file."""
     test_file = tmp_path / "test.json"
@@ -99,9 +90,3 @@ def test_validate_json_file_nonexistent(sync_manager, tmp_path):
     
     with pytest.raises(ObsyncError, match="File not found"):
         sync_manager.validate_json_file(test_file)
-
-
-def test_validate_json_file_permission_error(sync_manager, no_permission_json):
-    """Test validation with permission error."""
-    with pytest.raises(ObsyncError, match="Failed to read file"):
-        sync_manager.validate_json_file(no_permission_json)

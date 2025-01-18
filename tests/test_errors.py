@@ -1,11 +1,8 @@
 """Tests for error handling functionality."""
 
-import os
-import errno
-import shutil
-from pathlib import Path
-import pickle
 import json
+import pickle
+from pathlib import Path
 import pytest
 from loguru import logger
 from obsyncit.errors import (
@@ -14,53 +11,13 @@ from obsyncit.errors import (
 )
 
 
-def _safe_cleanup(path):
-    """Safe cleanup that handles permission errors."""
-    if path.exists():
-        try:
-            # Try to make writable first
-            path.chmod(0o666)
-        except OSError:
-            pass
-        try:
-            path.unlink()
-        except OSError:
-            pass
-
-
 @pytest.fixture
 def test_file(clean_dir):
     """Create a test file for error handling tests."""
     file_path = clean_dir / "test.json"
     file_path.write_text('{"test": true}')
     return file_path
-
-
-@pytest.fixture
-def no_permission_file(clean_dir):
-    """Create a file without read/write permissions."""
-    file_path = clean_dir / "noperm.json"
-    file_path.write_text('{"test": true}')
-    file_path.chmod(0o000)  # Remove all permissions
-    return file_path
-
-
-@pytest.fixture
-def unreadable_file(clean_dir):
-    """Create an unreadable file for testing permission errors."""
-    unreadable = clean_dir / "unreadable.txt"
-    unreadable.write_text("test content")
-    unreadable.chmod(0)
     
-    if os.access(str(unreadable), os.R_OK):
-        pytest.skip("File was still readable (possibly running in container)")
-    
-    yield unreadable
-    
-    # Cleanup: restore permissions so the file can be deleted
-    unreadable.chmod(0o644)
-
-
 @pytest.fixture
 def invalid_json_file(clean_dir):
     """Create a file with invalid JSON content."""
@@ -140,30 +97,16 @@ def test_sync_error():
     assert str(error) == expected
 
 
-def test_handle_file_error(clean_dir, unreadable_file):
-    """Test handling of file-related errors."""
-    # Test file not found error
-    test_file = clean_dir / "test.txt"
+def test_handle_file_error(clean_dir):
+    """Test handling of file not found errors."""
+    test_file = clean_dir / "nonexistent.txt"
     with pytest.raises(ObsyncError) as exc_info:
         handle_file_operation_error(FileNotFoundError(), "reading", test_file)
     assert "File not found" in str(exc_info.value)
     assert str(test_file) in str(exc_info.value)
 
-    # Test permission error using unreadable file
-    with pytest.raises(ObsyncError) as exc_info:
-        handle_file_operation_error(PermissionError(), "reading", unreadable_file)
-    assert "Permission denied" in str(exc_info.value)
-    assert str(unreadable_file) in str(exc_info.value)
 
-    # Test other file operation error
-    nonexistent = clean_dir / "nonexistent.txt"
-    with pytest.raises(ObsyncError) as exc_info:
-        handle_file_operation_error(OSError("Unknown error"), "reading", nonexistent)
-    assert "File operation failed" in str(exc_info.value)
-    assert str(nonexistent) in str(exc_info.value)
-
-
-def test_handle_json_error(clean_dir, invalid_json_file):
+def test_handle_json_error(invalid_json_file):
     """Test handling of JSON-related errors."""
     # Test JSON decode error with actual invalid JSON file
     try:

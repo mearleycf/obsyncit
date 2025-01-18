@@ -13,7 +13,7 @@ from tests.test_utils import create_test_vault
 def sample_vaults(clean_dir):
     """Create sample source and target vaults for testing."""
     source_vault = create_test_vault(clean_dir / "source_vault")
-    target_vault = create_test_vault(clean_dir / "target_vault", settings={}, create_default_settings=False)
+    target_vault = create_test_vault(clean_dir / "target_vault")  # Create with default settings
     return source_vault, target_vault
 
 
@@ -29,10 +29,7 @@ def sync_manager(sample_vaults):
 
 def test_sync_settings_success(sync_manager):
     """Test successful sync operation."""
-    # First, ensure the source vault has app.json
-    app_json = sync_manager.source.settings_dir / "app.json"
-    app_json.write_text('{"test": true}')
-
+    # Source and target vaults already have app.json with default settings
     result = sync_manager.sync_settings(["app.json"])
 
     assert result.success
@@ -67,29 +64,25 @@ def test_sync_with_dry_run(sync_manager):
     """Test sync in dry run mode."""
     sync_manager.config.sync.dry_run = True
 
+    # First change target content to be different from source
+    target_file = sync_manager.target.settings_dir / "app.json"
+    target_file.write_text('{"test": false}')
+
     result = sync_manager.sync_settings(["app.json"])
     assert result.success
     assert len(result.items_synced) == 1
 
-    # Verify no files were actually synced
-    target_file = sync_manager.target.settings_dir / "app.json"
-    assert not target_file.exists()
+    # Verify file wasn't synced (still has old content)
+    assert json.loads(target_file.read_text())["test"] is False
 
 
 def test_backup_creation(sync_manager):
     """Test backup creation during sync."""
-    # Perform initial sync to create some files
-    sync_manager.sync_settings(["app.json"])
-
-    # Modify target file
+    # Modify target file to be different from source
     target_file = sync_manager.target.settings_dir / "app.json"
-    assert target_file.exists()
-    original_content = target_file.read_text()
-
-    # Modify content
     target_file.write_text('{"test": false}')
 
-    # Sync again
+    # Sync should backup the modified target and then sync source content
     sync_manager.sync_settings(["app.json"])
 
     # Check backup exists and contains old content
@@ -97,33 +90,25 @@ def test_backup_creation(sync_manager):
     assert backup_dir.exists()
     backup_files = list(backup_dir.rglob("app.json"))
     assert len(backup_files) > 0
-    assert backup_files[0].read_text() == '{"test": false}'
+    assert json.loads(backup_files[0].read_text())["test"] is False
 
-    # Verify new content
-    assert json.loads(target_file.read_text())["test"] == True
+    # Verify target has been synced with source content
+    assert json.loads(target_file.read_text())["test"] is True
 
 
 def test_restore_backup(sync_manager, sample_vaults):
     """Test backup restoration."""
     source_vault, _ = sample_vaults
-
-    # Add a test file to the source vault
-    source_file = sync_manager.source.settings_dir / "app.json"
-    source_file.write_text('{"test": true}')
-
-    # Perform initial sync to create some files
-    sync_manager.sync_settings(["app.json"])
-
-    # Get initial content
     target_file = sync_manager.target.settings_dir / "app.json"
-    assert target_file.exists()
+
+    # Get original content
     original_content = target_file.read_text()
 
-    # Create a backup
+    # Create a backup with current content
     backup = sync_manager.backup_mgr.create_backup()
     assert backup is not None
 
-    # Modify content
+    # Modify target content
     target_file.write_text('{"test": false}')
 
     # Restore backup

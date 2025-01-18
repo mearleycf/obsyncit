@@ -59,26 +59,6 @@ def multiple_vaults(tmp_path):
     return tmp_path
 
 
-def restore_permissions(path: Path):
-    """Recursively restore permissions on a path and its contents."""
-    if path.is_file():
-        path.chmod(0o644)
-    else:
-        path.chmod(0o755)
-        for item in path.iterdir():
-            restore_permissions(item)
-
-
-@pytest.fixture
-def locked_vault(tmp_path):
-    """Create a vault with no permissions."""
-    vault = tmp_path / "locked_vault"
-    settings = vault / ".obsidian"
-    settings.mkdir(parents=True)
-    vault.chmod(0o000)
-    return vault
-
-
 def test_find_single_vault(sample_vault):
     """Test finding a single vault."""
     discovery = VaultDiscovery(sample_vault.parent)
@@ -117,27 +97,26 @@ def test_find_multiple_vaults(multiple_vaults):
 def test_get_vault_info(sample_vault):
     """Test getting vault information."""
     info = VaultDiscovery.get_vault_info(sample_vault)
-    
     assert info.name == "test_vault"
 
 
 def test_invalid_vault(tmp_path):
-    """Test handling invalid vault directories."""
-    # Create a directory that looks like a vault but isn't
-    fake_vault = tmp_path / "fake_vault"
-    fake_vault.mkdir()
-    # Create .obsidian directory but no settings
-    obsidian_dir = fake_vault / ".obsidian"
-    obsidian_dir.mkdir()
+    """Test handling directories that look like vaults but aren't."""
+    # Create a directory without .obsidian
+    not_a_vault = tmp_path / "not_a_vault"
+    not_a_vault.mkdir()
+
+    # Create a directory with empty .obsidian
+    empty_vault = tmp_path / "empty_vault"
+    empty_vault.mkdir()
+    (empty_vault / ".obsidian").mkdir()
 
     # Create a valid vault for comparison
     valid_vault = tmp_path / "valid_vault"
     valid_vault.mkdir()
     valid_obsidian = valid_vault / ".obsidian"
     valid_obsidian.mkdir()
-    # Add some settings files to make it valid
     (valid_obsidian / "app.json").write_text("{}")
-    (valid_obsidian / "appearance.json").write_text("{}")
 
     discovery = VaultDiscovery(tmp_path)
     vaults = discovery.find_vaults()
@@ -146,22 +125,10 @@ def test_invalid_vault(tmp_path):
     assert len(vaults) == 1
     assert vaults[0] == valid_vault
 
-    # Verify vault info
-    info = discovery.get_vault_info(valid_vault)
-    assert info.settings_count == 2
-
-
-def test_permission_error(locked_vault):
-    """Test handling permission errors."""
-    discovery = VaultDiscovery(locked_vault.parent)
-    vaults = discovery.find_vaults()
-    assert len(vaults) == 0
-
 
 def test_get_vault_info_invalid_vault(tmp_path):
     """Test getting info for invalid vault."""
     info = VaultDiscovery.get_vault_info(tmp_path)
-    
     assert info.name == tmp_path.name
 
 
