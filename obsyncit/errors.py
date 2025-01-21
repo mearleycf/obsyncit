@@ -1,340 +1,336 @@
-"""ObsyncIt Error Classes and Error Handling Utilities.
+"""Error Handling for ObsyncIt.
 
-This module defines the exception hierarchy and error handling utilities used throughout ObsyncIt.
-It provides specific error types for different operations (vault, config, sync, etc.) and
-includes decorators and helper functions for consistent error handling.
+This module provides a comprehensive error handling system with custom
+exceptions and error handlers. It includes:
 
-Typical usage:
-    try:
-        result = perform_operation()
-    except VaultError as e:
-        logger.error(e.full_message)
-        # Handle vault-specific error
-    except ConfigError as e:
-        logger.error(e.full_message)
-        # Handle configuration error
+1. Custom Exceptions
+   - Base exception class for all ObsyncIt errors
+   - Specific exceptions for different error types
+   - Detailed error context and messages
 
-Error Hierarchy:
-    ObsyncError (base)
-    ├── VaultError
-    ├── ConfigError
-    ├── ValidationError
-    ├── BackupError
-    └── SyncError
+2. Error Handlers
+   - Standardized error handling functions
+   - Consistent error reporting
+   - Detailed error context
+
+3. Error Categories
+   - Validation errors (invalid settings, JSON, etc.)
+   - Sync errors (file operations, permissions, etc.)
+   - Backup errors (creation, restoration, etc.)
+
+Example Usage:
+    >>> from obsyncit.errors import ObsyncError, ValidationError
+    >>> 
+    >>> try:
+    ...     # Some operation that might fail
+    ...     validate_settings(data)
+    ... except ValidationError as e:
+    ...     print(f"Validation failed: {e}")
+    ...     print(f"Context: {e.context}")
+    ... except ObsyncError as e:
+    ...     print(f"Operation failed: {e}")
 """
 
 from __future__ import annotations
 
-import functools
 import json
 from pathlib import Path
-from typing import (
-    List, Optional, Union, Callable, Any, TypeVar, ParamSpec,
-    cast, overload, NoReturn, Type
-)
+from typing import List, Optional, Union, NoReturn
+from typing_extensions import TypeAlias
 
 from loguru import logger
 
-
-# Type variables for generic function signatures
-T = TypeVar('T')
-P = ParamSpec('P')
-PathLike = Union[str, Path]
-
+# Type aliases
+ErrorContext: TypeAlias = Union[str, Path]
+"""Type for error context information"""
 
 class ObsyncError(Exception):
-    """Base error class for all ObsyncIt exceptions.
+    """Base exception class for all ObsyncIt errors.
     
-    This class serves as the root of the ObsyncIt exception hierarchy and provides
-    common functionality for all derived error classes.
+    This is the parent class for all custom exceptions in ObsyncIt.
+    It provides consistent error handling and context information.
     
     Attributes:
-        message: The primary error message
-        details: Additional error details or context
+        message: Human-readable error description
+        context: Additional context about the error
+        details: List of detailed error information
+    
+    Example:
+        >>> try:
+        ...     raise ObsyncError("Operation failed", "context")
+        ... except ObsyncError as e:
+        ...     print(f"{e.message}: {e.context}")
     """
-
-    def __init__(self, message: str, details: Optional[str] = None) -> None:
-        """Initialize the error with a message and optional details.
+    
+    def __init__(
+        self,
+        message: str,
+        context: Optional[ErrorContext] = None,
+        details: Optional[List[str]] = None
+    ) -> None:
+        """Initialize the base error.
         
         Args:
-            message: The primary error message
-            details: Additional context or details about the error
+            message: Human-readable error description
+            context: Additional context about the error
+            details: List of detailed error information
         """
         self.message = message
-        self.details = details
-        super().__init__(self.full_message)
+        self.context = context
+        self.details = details or []
+        super().__init__(self.message)
 
-    @property
-    def full_message(self) -> str:
-        """Get the complete error message including details.
+    def __str__(self) -> str:
+        """Get string representation of the error.
         
         Returns:
-            The formatted error message with details if available
+            Formatted error message with context
         """
-        if self.details:
-            return f"{self.message}\nDetails: {self.details}"
+        if self.context:
+            return f"{self.message} [{self.context}]"
         return self.message
-
-    def __reduce__(self) -> tuple[Type[ObsyncError], tuple[str, Optional[str]]]:
-        """Support pickling of error instances.
-        
-        Returns:
-            A tuple containing the class and arguments needed for reconstruction
-        """
-        return (self.__class__, (self.message, self.details))
-
-
-class VaultError(ObsyncError):
-    """Error specific to Obsidian vault operations.
-    
-    Used when operations involving vault access, validation, or modification fail.
-    
-    Attributes:
-        vault_path: Path to the vault where the error occurred
-        message: The error message
-        details: Additional error context
-    """
-
-    def __init__(self, message: str, vault_path: PathLike, details: Optional[str] = None) -> None:
-        """Initialize a vault error.
-        
-        Args:
-            message: The error message
-            vault_path: Path to the relevant vault
-            details: Additional error context
-        """
-        self.vault_path = Path(vault_path)
-        self._details = details
-        error_details = [f"Vault: {self.vault_path}"]
-        if details:
-            error_details.append(details)
-        super().__init__(message, "\n".join(error_details))
-
-    def __reduce__(self) -> tuple[Type[VaultError], tuple[str, Path, Optional[str]]]:
-        """Support pickling of VaultError instances."""
-        return (self.__class__, (self.message, self.vault_path, self._details))
-
-
-class ConfigError(ObsyncError):
-    """Error related to configuration loading or validation.
-    
-    Used for issues with configuration files, settings, or validation failures.
-    
-    Attributes:
-        file_path: Optional path to the configuration file
-        message: The error message
-        details: Additional error context
-    """
-
-    def __init__(
-        self, 
-        message: str, 
-        file_path: Optional[PathLike] = None, 
-        details: Optional[str] = None
-    ) -> None:
-        """Initialize a configuration error.
-        
-        Args:
-            message: The error message
-            file_path: Optional path to the relevant configuration file
-            details: Additional error context
-        """
-        self.file_path = Path(file_path) if file_path else None
-        self._details = details
-        error_parts = []
-        if self.file_path:
-            error_parts.append(f"Config: {self.file_path}")
-        if details:
-            error_parts.append(details)
-        super().__init__(message, "\n".join(error_parts) if error_parts else None)
-
-    def __reduce__(self) -> tuple[Type[ConfigError], tuple[str, Optional[Path], Optional[str]]]:
-        """Support pickling of ConfigError instances."""
-        return (self.__class__, (self.message, self.file_path, self._details))
 
 
 class ValidationError(ObsyncError):
-    """Error related to JSON schema validation.
+    """Exception raised for validation errors.
     
-    Used when validation of JSON data against a schema fails.
+    This exception is raised when validation fails for settings,
+    configuration files, or other validated content.
     
     Attributes:
         file_path: Path to the file that failed validation
-        schema_errors: List of specific validation errors
-        message: The error message
+        errors: List of validation error messages
+    
+    Example:
+        >>> try:
+        ...     validate_config("config.json")
+        ... except ValidationError as e:
+        ...     print(f"Validation failed: {e.errors}")
     """
-
-    def __init__(self, message: str, file_path: PathLike, errors: List[str]) -> None:
-        """Initialize a validation error.
+    
+    def __init__(
+        self,
+        message: str,
+        file_path: Path,
+        errors: List[str]
+    ) -> None:
+        """Initialize validation error.
         
         Args:
-            message: The error message
+            message: Human-readable error description
             file_path: Path to the file that failed validation
-            errors: List of specific validation errors
+            errors: List of validation error messages
         """
-        self.file_path = Path(file_path)
-        self.schema_errors = errors
-        error_parts = [f"File: {self.file_path}"]
-        error_parts.extend([f"- {error}" for error in errors])
-        super().__init__(message, "\n".join(error_parts))
-
-    def __reduce__(self) -> tuple[Type[ValidationError], tuple[str, Path, List[str]]]:
-        """Support pickling of ValidationError instances."""
-        return (self.__class__, (self.message, self.file_path, self.schema_errors))
-
-
-class BackupError(ObsyncError):
-    """Error related to backup operations.
-    
-    Used when backup creation, restoration, or management fails.
-    
-    Attributes:
-        backup_path: Path to the backup location
-        message: The error message
-        details: Additional error context
-    """
-
-    def __init__(self, message: str, backup_path: PathLike, details: Optional[str] = None) -> None:
-        """Initialize a backup error.
-        
-        Args:
-            message: The error message
-            backup_path: Path to the relevant backup
-            details: Additional error context
-        """
-        self.backup_path = Path(backup_path)
-        self._details = details
-        error_parts = [f"Backup: {self.backup_path}"]
-        if details:
-            error_parts.append(details)
-        super().__init__(message, "\n".join(error_parts))
-
-    def __reduce__(self) -> tuple[Type[BackupError], tuple[str, Path, Optional[str]]]:
-        """Support pickling of BackupError instances."""
-        return (self.__class__, (self.message, self.backup_path, self._details))
+        super().__init__(message, str(file_path), errors)
+        self.file_path = file_path
+        self.errors = errors
 
 
 class SyncError(ObsyncError):
-    """Error related to sync operations.
+    """Exception raised for synchronization errors.
     
-    Used when synchronization between vaults fails.
+    This exception is raised when sync operations fail between
+    source and target vaults.
     
     Attributes:
-        source: Optional path to the source vault
-        target: Optional path to the target vault
-        message: The error message
-        details: Additional error context
-    """
-
-    def __init__(
-        self, 
-        message: str, 
-        source: Optional[PathLike] = None,
-        target: Optional[PathLike] = None, 
-        details: Optional[str] = None
-    ) -> None:
-        """Initialize a sync error.
-        
-        Args:
-            message: The error message
-            source: Optional path to the source vault
-            target: Optional path to the target vault
-            details: Additional error context
-        """
-        self.source = Path(source) if source else None
-        self.target = Path(target) if target else None
-        self._details = details
-        error_parts = []
-        if self.source:
-            error_parts.append(f"Source: {self.source}")
-        if self.target:
-            error_parts.append(f"Target: {self.target}")
-        if details:
-            error_parts.append(details)
-        super().__init__(message, "\n".join(error_parts) if error_parts else None)
-
-    def __reduce__(self) -> tuple[Type[SyncError], tuple[str, Optional[Path], Optional[Path], Optional[str]]]:
-        """Support pickling of SyncError instances."""
-        return (self.__class__, (self.message, self.source, self.target, self._details))
-
-
-def with_error_handling(error_class: Type[ObsyncError]) -> Callable[[Callable[P, T]], Callable[P, T]]:
-    """Decorator for consistent error handling across functions.
-    
-    Args:
-        error_class: The error class to use for wrapping exceptions
-        
-    Returns:
-        A decorator function that wraps the target function with error handling
+        source: Source vault path
+        target: Target vault path
+        details: List of sync error details
     
     Example:
-        @with_error_handling(VaultError)
-        def process_vault(path: Path) -> None:
-            # Function implementation
-            pass
+        >>> try:
+        ...     sync_vaults(source, target)
+        ... except SyncError as e:
+        ...     print(f"Sync failed: {e.source} -> {e.target}")
     """
-    def decorator(func: Callable[P, T]) -> Callable[P, T]:
-        @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            try:
-                return func(*args, **kwargs)
-            except ObsyncError:
-                raise
-            except Exception as e:
-                logger.error(f"Operation failed: {func.__name__}")
-                logger.debug(f"Error: {str(e)}")
-                raise error_class(str(e))
-        return wrapper
-    return decorator
+    
+    def __init__(
+        self,
+        message: str,
+        source: Optional[Path] = None,
+        target: Optional[Path] = None,
+        details: Optional[List[str]] = None
+    ) -> None:
+        """Initialize sync error.
+        
+        Args:
+            message: Human-readable error description
+            source: Source vault path
+            target: Target vault path
+            details: List of sync error details
+        """
+        context = f"{source} -> {target}" if source and target else None
+        super().__init__(message, context, details)
+        self.source = source
+        self.target = target
 
 
-def handle_file_operation_error(error: Exception, operation: str, path: PathLike) -> NoReturn:
+class BackupError(ObsyncError):
+    """Exception raised for backup operation errors.
+    
+    This exception is raised when backup creation or restoration
+    operations fail.
+    
+    Attributes:
+        vault_path: Path to the vault being backed up/restored
+        backup_path: Path to the backup file/directory
+    
+    Example:
+        >>> try:
+        ...     create_backup(vault_path)
+        ... except BackupError as e:
+        ...     print(f"Backup failed: {e.vault_path}")
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        vault_path: Optional[Path] = None,
+        backup_path: Optional[Path] = None,
+        details: Optional[List[str]] = None
+    ) -> None:
+        """Initialize backup error.
+        
+        Args:
+            message: Human-readable error description
+            vault_path: Path to the vault being backed up/restored
+            backup_path: Path to the backup file/directory
+            details: List of backup error details
+        """
+        context = str(vault_path) if vault_path else None
+        super().__init__(message, context, details)
+        self.vault_path = vault_path
+        self.backup_path = backup_path
+
+
+class VaultError(ObsyncError):
+    """Exception raised for vault-related errors.
+    
+    This exception is raised when operations on an Obsidian vault
+    fail, such as validation or settings access.
+    
+    Attributes:
+        vault_path: Path to the problematic vault
+    
+    Example:
+        >>> try:
+        ...     validate_vault(path)
+        ... except VaultError as e:
+        ...     print(f"Invalid vault: {e.vault_path}")
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        vault_path: Path,
+        details: Optional[List[str]] = None
+    ) -> None:
+        """Initialize vault error.
+        
+        Args:
+            message: Human-readable error description
+            vault_path: Path to the problematic vault
+            details: List of vault error details
+        """
+        super().__init__(message, str(vault_path), details)
+        self.vault_path = vault_path
+
+
+def handle_file_operation_error(
+    error: Exception,
+    operation: str,
+    path: Union[str, Path]
+) -> NoReturn:
     """Handle file operation errors consistently.
     
-    Args:
-        error: The caught exception
-        operation: Description of the attempted operation
-        path: Path to the file that caused the error
-        
-    Raises:
-        ObsyncError: Always raised with appropriate context
-    """
-    path_str = str(path)
-    if isinstance(error, FileNotFoundError):
-        logger.error("File not found")
-        logger.debug(f"Path: {path_str}")
-        raise ObsyncError("File not found", f"Path: {path_str}")
-    else:
-        logger.error(f"File operation failed: {operation}")
-        logger.debug(f"Path: {path_str}")
-        raise ObsyncError(f"File operation failed: {operation}", f"Path: {path_str}")
-
-
-def handle_json_error(error: Union[json.JSONDecodeError, Exception], file_path: Path) -> NoReturn:
-    """Handle JSON parsing and validation errors consistently.
+    This function provides standardized handling of file operation
+    errors, including permission issues, missing files, etc. It logs
+    the error with appropriate context and raises an ObsyncError.
     
     Args:
-        error: The caught JSON-related exception
-        file_path: Path to the JSON file that caused the error
-        
+        error: The caught file operation exception
+        operation: Description of the operation being performed
+        path: Path to the file/directory involved
+    
     Raises:
-        ValidationError: Always raised with appropriate context
+        ObsyncError: Always raised with formatted error message
+    
+    Example:
+        >>> try:
+        ...     with open("config.json", "r") as f:
+        ...         data = json.load(f)
+        ... except Exception as e:
+        ...     handle_file_operation_error(
+        ...         e,
+        ...         "reading configuration",
+        ...         "config.json"
+        ...     )
+    
+    Note:
+        This function never returns as it always raises an exception.
+        The NoReturn type hint indicates this behavior.
+    """
+    logger.error(f"File operation error while {operation}: {error}")
+    logger.debug("", exc_info=True)
+    raise ObsyncError(
+        f"Failed while {operation}",
+        str(path),
+        [str(error)]
+    )
+
+
+def handle_json_error(
+    error: Union[json.JSONDecodeError, Exception],
+    file_path: Path
+) -> NoReturn:
+    """Handle JSON parsing and validation errors consistently.
+    
+    This function provides standardized handling of JSON-related errors,
+    including syntax errors, decoding issues, and schema validation
+    failures. It logs the error with appropriate context and raises
+    a ValidationError.
+    
+    Args:
+        error: The caught JSON error (JSONDecodeError or other exception)
+        file_path: Path to the JSON file being processed
+    
+    Raises:
+        ValidationError: Always raised with formatted error message
+    
+    Example:
+        >>> try:
+        ...     with open("settings.json", "r") as f:
+        ...         settings = json.load(f)
+        ... except json.JSONDecodeError as e:
+        ...     handle_json_error(e, Path("settings.json"))
+        ... except Exception as e:
+        ...     handle_json_error(e, Path("settings.json"))
+    
+    Note:
+        This function never returns as it always raises an exception.
+        The NoReturn type hint indicates this behavior.
+        
+        For JSONDecodeError, it includes line and column information
+        in the error message to help locate syntax errors.
     """
     if isinstance(error, json.JSONDecodeError):
-        # Get context around the error
-        start = max(0, error.pos - 20)
-        end = min(len(error.doc), error.pos + 20)
-        context = error.doc[start:end]
-        
-        logger.error("Invalid JSON format")
-        logger.debug(f"File: {file_path}")
-        logger.debug(f"Line {error.lineno}, Column {error.colno}: {error.msg}")
-        logger.debug(f"Context: {context}")
-        
-        error_details = f"Line {error.lineno}, Column {error.colno}: {error.msg}"
-        raise ValidationError("Invalid JSON format", file_path, [error_details])
+        logger.error(
+            f"JSON decode error in {file_path}: {error}"
+        )
+        logger.debug(
+            f"Error at line {error.lineno}, column {error.colno}",
+            exc_info=True
+        )
+        raise ValidationError(
+            "Invalid JSON format",
+            file_path,
+            [f"Line {error.lineno}, column {error.colno}: {error.msg}"]
+        )
     else:
-        logger.error("JSON operation failed")
-        logger.debug(f"File: {file_path}")
-        logger.debug(f"Error: {str(error)}")
-        raise ValidationError("JSON operation failed", file_path, [str(error)])
+        logger.error(f"JSON validation error in {file_path}: {error}")
+        logger.debug("", exc_info=True)
+        raise ValidationError(
+            "JSON validation failed",
+            file_path,
+            [str(error)]
+        )

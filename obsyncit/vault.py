@@ -1,7 +1,51 @@
-"""Vault Manager - Handles Obsidian vault operations.
+"""Vault Manager for Obsidian Settings.
 
-This module provides functionality for managing Obsidian vaults,
-including validation and file operations.
+This module provides comprehensive functionality for managing Obsidian vaults,
+including validation, file operations, and settings management. It handles:
+
+1. Vault Management
+   - Vault structure validation
+   - Settings directory management
+   - File and directory operations
+
+2. Settings Files
+   - Core settings (app.json, appearance.json, etc.)
+   - Plugin settings (core and community)
+   - Theme configuration
+   - Type definitions and templates
+
+3. Resource Directories
+   - Plugin directories and files
+   - Theme directories
+   - CSS snippets
+   - Plugin icons and resources
+
+Example Usage:
+    >>> from obsyncit.vault import VaultManager
+    >>> 
+    >>> # Create manager for a vault
+    >>> vault = VaultManager("/path/to/vault")
+    >>> 
+    >>> # Validate vault structure
+    >>> if vault.validate_vault():
+    ...     print("Valid Obsidian vault")
+    >>> 
+    >>> # Get settings files
+    >>> settings = vault.get_settings_files()
+    >>> print(f"Found settings: {settings}")
+    >>> 
+    >>> # Get directories
+    >>> dirs = vault.get_settings_dirs()
+    >>> print(f"Found directories: {dirs}")
+    >>> 
+    >>> # Get complete vault settings
+    >>> if settings := vault.get_vault_settings():
+    ...     if settings.has_plugins:
+    ...         print("Plugins directory exists")
+    ...         print(f"Located at: {settings.pluginDir}")
+    ...     if settings.has_themes:
+    ...         print("Themes directory exists")
+    ...         print(f"Located at: {settings.themeDir}")
 """
 
 import json
@@ -21,23 +65,80 @@ from obsyncit.schemas.obsidian import ObsidianSettings
 class VaultManager:
     """Manages operations on an Obsidian vault.
     
-    This class provides methods for validating and managing Obsidian vaults,
-    including checking vault structure, managing settings files, and handling
-    JSON validation.
+    This class provides comprehensive methods for validating and managing
+    Obsidian vaults, including vault structure verification, settings file
+    management, and resource directory handling.
+    
+    The manager handles:
+    - Vault structure validation
+    - Settings file operations
+    - JSON validation
+    - Directory management
+    - Resource handling (plugins, themes, etc.)
     
     Attributes:
-        vault_path (Path): Path to the Obsidian vault
-        settings_dir (Path): Path to the .obsidian configuration directory
+        vault_path: Absolute path to the Obsidian vault
+        settings_dir: Path to the .obsidian configuration directory
+    
+    Important Files:
+        - app.json: Core application settings
+        - appearance.json: UI and theme settings
+        - hotkeys.json: Keyboard shortcuts
+        - types.json: Type definitions
+        - templates.json: Template settings
+        - community-plugins.json: Plugin list and settings
+        - core-plugins.json: Built-in plugin settings
+        - core-plugins-migration.json: Plugin migration data
+    
+    Important Directories:
+        - plugins/: Plugin data and configuration
+        - themes/: Custom themes
+        - snippets/: CSS snippets
+        - icons/: Plugin icons and resources
+    
+    Example:
+        >>> # Initialize and validate a vault
+        >>> vault = VaultManager("/path/to/vault")
+        >>> if vault.validate_vault():
+        ...     print(f"Valid vault at {vault.vault_path}")
+        ...     print(f"Settings dir: {vault.settings_dir}")
+        >>> 
+        >>> # Check for specific settings files
+        >>> if (vault.settings_dir / "app.json").exists():
+        ...     print("Found app.json")
+        >>> 
+        >>> # List all JSON settings
+        >>> settings = vault.get_settings_files()
+        >>> print("Settings files:", settings)
+        >>> 
+        >>> # Check plugin directory
+        >>> plugin_dir = vault.settings_dir / "plugins"
+        >>> if plugin_dir.exists():
+        ...     plugins = list(plugin_dir.glob("*"))
+        ...     print(f"Found {len(plugins)} plugins")
     """
 
     def __init__(self, vault_path: Union[str, Path]) -> None:
         """Initialize the vault manager.
 
+        This method sets up the vault manager by resolving the vault path
+        and setting up the settings directory path. The vault path is resolved
+        to its absolute path to ensure consistent operations.
+
         Args:
-            vault_path: Path to the Obsidian vault
+            vault_path: Path to the Obsidian vault (string or Path)
         
-        Note:
-            The vault path will be resolved to its absolute path during initialization.
+        Example:
+            >>> # Initialize with string path
+            >>> vault = VaultManager("/path/to/vault")
+            >>> 
+            >>> # Initialize with Path object
+            >>> from pathlib import Path
+            >>> vault = VaultManager(Path.home() / "Documents" / "MyVault")
+            >>> 
+            >>> # Access resolved paths
+            >>> print(f"Vault path: {vault.vault_path}")
+            >>> print(f"Settings: {vault.settings_dir}")
         """
         self.vault_path = Path(vault_path).resolve()
         self.settings_dir = self.vault_path / ".obsidian"
@@ -46,23 +147,42 @@ class VaultManager:
         """Return string representation of the VaultManager.
         
         Returns:
-            str: String representation showing the vault path
+            String representation showing the vault path
+            
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> str(vault)
+            "VaultManager(vault_path='/path/to/vault')"
+            >>> repr(vault)
+            "VaultManager(vault_path='/path/to/vault')"
         """
         return f"VaultManager(vault_path='{self.vault_path}')"
 
     def validate_vault(self) -> bool:
         """Validate that this is a valid Obsidian vault.
 
-        This method checks:
-        - Vault directory exists
-        - .obsidian directory exists
-        - At least one settings file exists
+        This method performs comprehensive validation of the vault structure:
+        1. Checks vault directory exists
+        2. Verifies .obsidian directory exists
+        3. Confirms presence of essential settings files
+        4. Validates directory permissions
+        5. Checks for basic vault structure
 
         Returns:
-            bool: True if the vault is valid
+            True if the vault is valid and accessible
             
         Raises:
-            VaultError: If any validation checks fail
+            VaultError: If any validation checks fail with details
+            
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> try:
+            ...     if vault.validate_vault():
+            ...         print("Valid Obsidian vault")
+            ...         print("Settings dir:", vault.settings_dir)
+            ... except VaultError as e:
+            ...     print(f"Invalid vault: {e}")
+            ...     print(f"Path: {e.vault_path}")
         """
         try:
             if not self.vault_path.exists():
@@ -95,14 +215,31 @@ class VaultManager:
     def validate_json_file(self, file_path: Path) -> bool:
         """Validate that a file contains valid JSON.
 
+        This method checks both the existence and syntax of a JSON file.
+        It does not validate against any specific schema, only that the
+        file contains valid JSON data.
+
         Args:
             file_path: Path to the file to validate
 
         Returns:
-            bool: True if the file contains valid JSON
+            True if the file exists and contains valid JSON
             
-        Note:
-            This method only validates JSON syntax, not schema compliance.
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> app_json = vault.settings_dir / "app.json"
+            >>> 
+            >>> # Basic validation
+            >>> if vault.validate_json_file(app_json):
+            ...     print("Valid JSON file")
+            >>> 
+            >>> # Error handling
+            >>> try:
+            ...     vault.validate_json_file(app_json)
+            ... except json.JSONDecodeError as e:
+            ...     print(f"Invalid JSON: {e}")
+            ... except FileNotFoundError:
+            ...     print("File not found")
         """
         try:
             if not file_path.exists():
@@ -121,13 +258,34 @@ class VaultManager:
             return False
 
     def get_settings_files(self) -> Set[str]:
-        """Get a list of settings files in the vault.
+        """Get all settings files in the vault.
+
+        This method returns the names of all JSON configuration files
+        in the vault's .obsidian directory. This includes:
+        - Core settings files (app.json, appearance.json)
+        - Plugin configuration files
+        - Theme settings
+        - Type definitions
+        - Template configurations
 
         Returns:
-            Set[str]: Set of settings file names (e.g., ["app.json", "appearance.json"])
+            Set of settings file names
             
-        Note:
-            Only returns .json files in the root of the .obsidian directory.
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> 
+            >>> # Get all settings files
+            >>> files = vault.get_settings_files()
+            >>> print("Found files:", files)
+            >>> 
+            >>> # Check for specific files
+            >>> if "app.json" in files:
+            ...     print("Found app.json")
+            >>> if "appearance.json" in files:
+            ...     print("Found appearance.json")
+            >>> 
+            >>> # Count settings files
+            >>> print(f"Total settings: {len(files)}")
         """
         try:
             if not self.settings_dir.exists():
@@ -143,13 +301,36 @@ class VaultManager:
             return set()
 
     def get_settings_dirs(self) -> Set[str]:
-        """Get a list of settings directories in the vault.
+        """Get all settings directories in the vault.
+
+        Returns the names of all configuration directories in the
+        vault's .obsidian directory. This includes:
+        - plugins/: Plugin installation directory
+        - themes/: Custom theme directory
+        - snippets/: CSS snippets directory
+        - icons/: Plugin icon resources
 
         Returns:
-            Set[str]: Set of settings directory names (e.g., ["plugins", "themes"])
+            Set of directory names
             
-        Note:
-            Only returns non-hidden directories in the .obsidian directory.
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> 
+            >>> # Get all directories
+            >>> dirs = vault.get_settings_dirs()
+            >>> print("Found directories:", dirs)
+            >>> 
+            >>> # Check for specific directories
+            >>> if "plugins" in dirs:
+            ...     plugins_dir = vault.settings_dir / "plugins"
+            ...     plugin_count = len(list(plugins_dir.glob("*")))
+            ...     print(f"Found {plugin_count} plugins")
+            >>> 
+            >>> # Check for themes
+            >>> if "themes" in dirs:
+            ...     themes_dir = vault.settings_dir / "themes"
+            ...     theme_count = len(list(themes_dir.glob("*.css")))
+            ...     print(f"Found {theme_count} themes")
         """
         try:
             if not self.settings_dir.exists():
@@ -167,14 +348,32 @@ class VaultManager:
     def get_file_path(self, file_name: str) -> Optional[Path]:
         """Get the full path to a settings file.
 
+        Resolves the full path to a settings file in the vault's
+        .obsidian directory. This is useful for accessing specific
+        configuration files when you know their names.
+
         Args:
             file_name: Name of the settings file (e.g., "app.json")
 
         Returns:
-            Optional[Path]: Full path to the file, or None if not found
+            Full path to the file if it exists, None otherwise
             
-        Note:
-            The file must exist in the .obsidian directory to be returned.
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> 
+            >>> # Get path to app.json
+            >>> if path := vault.get_file_path("app.json"):
+            ...     print(f"Found at: {path}")
+            ...     with open(path) as f:
+            ...         settings = json.load(f)
+            ...     print("Settings:", settings)
+            >>> 
+            >>> # Check multiple files
+            >>> for file in ["appearance.json", "hotkeys.json"]:
+            ...     if path := vault.get_file_path(file):
+            ...         print(f"Found {file}")
+            ...     else:
+            ...         print(f"Missing {file}")
         """
         try:
             file_path = self.settings_dir / file_name
@@ -185,14 +384,38 @@ class VaultManager:
             return None
 
     def get_vault_settings(self) -> Optional[ObsidianSettings]:
-        """Get the vault settings configuration.
+        """Get the complete vault settings configuration.
+
+        Creates an ObsidianSettings object containing paths to all
+        configuration components, including:
+        - Base vault path
+        - Settings directory
+        - Plugin directory
+        - Theme directory
+        - Snippets directory
+        - Icons directory
 
         Returns:
-            Optional[ObsidianSettings]: The vault settings if available, None otherwise
+            ObsidianSettings object if vault is valid, None otherwise
             
-        Note:
-            This creates an ObsidianSettings instance with paths to various
-            configuration directories if they exist.
+        Example:
+            >>> vault = VaultManager("/path/to/vault")
+            >>> 
+            >>> # Get complete settings
+            >>> if settings := vault.get_vault_settings():
+            ...     # Check plugin configuration
+            ...     if settings.has_plugins:
+            ...         print(f"Plugins at: {settings.pluginDir}")
+            ...         print(f"Icons at: {settings.iconDir}")
+            ...     
+            ...     # Check theme configuration
+            ...     if settings.has_themes:
+            ...         print(f"Themes at: {settings.themeDir}")
+            ...         print(f"Snippets at: {settings.snippetDir}")
+            ...     
+            ...     # Access base paths
+            ...     print(f"Vault: {settings.basePath}")
+            ...     print(f"Config: {settings.configDir}")
         """
         try:
             if not self.validate_vault():
@@ -203,7 +426,8 @@ class VaultManager:
                 configDir=self.settings_dir,
                 pluginDir=self.settings_dir / "plugins" if (self.settings_dir / "plugins").exists() else None,
                 themeDir=self.settings_dir / "themes" if (self.settings_dir / "themes").exists() else None,
-                snippetDir=self.settings_dir / "snippets" if (self.settings_dir / "snippets").exists() else None
+                snippetDir=self.settings_dir / "snippets" if (self.settings_dir / "snippets").exists() else None,
+                iconDir=self.settings_dir / "icons" if (self.settings_dir / "icons").exists() else None,
             )
             
             return settings if settings.validate() else None

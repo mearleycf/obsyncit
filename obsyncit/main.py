@@ -248,77 +248,83 @@ def handle_error(error: Exception) -> NoReturn:
     """Handle different types of errors with appropriate messages and exit codes.
     
     This function logs the error with an appropriate message and exits the program
-    with a corresponding exit code based on the error type.
+    with a corresponding exit code based on the error type. It ensures consistent
+    error handling across the application.
 
     Args:
-        error: The exception to handle
+        error: The exception to handle. Supported types:
+            - ObsyncError and subclasses (VaultError, ConfigError, etc.)
+            - Other exceptions (treated as general errors)
 
     Returns:
-        Never returns, always exits the program
+        Never returns, always exits the program with an appropriate code
 
     Example:
         >>> try:
-        ...     raise VaultError("Invalid vault", "/path/to/vault")
+        ...     sync_mgr.sync_settings()
         ... except Exception as e:
-        ...     handle_error(e)
-        Vault Error:
-        Invalid vault
-        Path: /path/to/vault
-        # Exits with code 2
+        ...     handle_error(e)  # Exits with appropriate code
     """
-    exit_code = ExitCode.GENERAL_ERROR
-
     if isinstance(error, VaultError):
-        logger.error("Vault Error:")
-        logger.error(error.full_message)
-        exit_code = ExitCode.VAULT_ERROR
-
+        logger.error(f"Invalid vault: {error.vault_path}")
+        logger.debug(f"Details: {error.message}")
+        sys.exit(ExitCode.VAULT_ERROR.value)
     elif isinstance(error, ConfigError):
-        logger.error("Configuration Error:")
-        logger.error(error.full_message)
-        exit_code = ExitCode.CONFIG_ERROR
-
+        logger.error(f"Configuration error: {error.message}")
+        if error.details:
+            logger.debug(f"Details:\n{error.details}")
+        sys.exit(ExitCode.CONFIG_ERROR.value)
     elif isinstance(error, ValidationError):
-        logger.error("Validation Error:")
-        logger.error(error.full_message)
-        exit_code = ExitCode.VALIDATION_ERROR
-
+        logger.error(f"Validation error: {error.message}")
+        if error.details:
+            logger.debug(f"Details:\n{error.details}")
+        sys.exit(ExitCode.VALIDATION_ERROR.value)
     elif isinstance(error, BackupError):
-        logger.error("Backup Error:")
-        logger.error(error.full_message)
-        exit_code = ExitCode.BACKUP_ERROR
-
+        logger.error(f"Backup error: {error.message}")
+        if error.details:
+            logger.debug(f"Details:\n{error.details}")
+        sys.exit(ExitCode.BACKUP_ERROR.value)
     elif isinstance(error, SyncError):
-        logger.error("Sync Error:")
-        logger.error(error.full_message)
-        exit_code = ExitCode.SYNC_ERROR
-
+        logger.error(f"Sync error: {error.message}")
+        if error.errors:
+            logger.debug("Failed items:")
+            for item, err in error.errors.items():
+                logger.debug(f"  {item}: {err}")
+        sys.exit(ExitCode.SYNC_ERROR.value)
     elif isinstance(error, ObsyncError):
-        logger.error("Error:")
-        logger.error(error.full_message)
-        exit_code = ExitCode.GENERAL_ERROR
-
+        logger.error(str(error))
+        sys.exit(ExitCode.GENERAL_ERROR.value)
     else:
-        logger.error(f"Unexpected error: {str(error)}")
-        logger.debug("", exc_info=True)
-        exit_code = ExitCode.GENERAL_ERROR
-
-    sys.exit(exit_code.value)
+        logger.exception("Unexpected error")
+        sys.exit(ExitCode.GENERAL_ERROR.value)
 
 
 def print_backups(backups: Sequence[BackupInfo]) -> None:
-    """Display backup information in a formatted way.
+    """Print a formatted list of available backups.
     
+    This function displays backup information in a user-friendly format,
+    including timestamp, size, and validation status for each backup.
+    If no backups are available, it prints an appropriate message.
+
     Args:
-        backups: List of backup information objects
+        backups: Sequence of BackupInfo objects to display
+
+    Example:
+        >>> mgr = BackupManager("vault_path")
+        >>> backups = mgr.list_backups()
+        >>> print_backups(backups)
+        Available backups:
+          2024-01-19 14:30:23 - 5.2MB (verified)
+          2024-01-18 09:15:07 - 4.8MB (verified)
     """
     if not backups:
-        logger.info("No backups found")
+        print("No backups available")
         return
 
-    logger.info(f"Found {len(backups)} backup(s):")
-    for idx, backup in enumerate(backups, 1):
-        logger.info(f"\n{idx}. {backup}")
+    print("\nAvailable backups:")
+    for backup in backups:
+        status = "(verified)" if backup.is_verified else ""
+        print(f"  {backup.timestamp} - {backup.size_mb:.1f}MB {status}")
 
 
 def main(args: Optional[Sequence[str]] = None) -> None:
