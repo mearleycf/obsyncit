@@ -1,0 +1,54 @@
+# Sample Configuration File for ObsyncIt
+# Save this as config.toml in:
+# - Linux/macOS: ~/.config/obsyncit/config.toml
+# - Windows: %APPDATA%\obsyncit\config.toml
+
+[sync]
+# Core settings sync configuration
+core_settings = true        # Sync core Obsidian settings
+core_plugins = true         # Sync built-in plugin settings
+community_plugins = true    # Sync community plugin settings and data
+themes = true              # Sync custom themes
+snippets = true            # Sync CSS snippets
+
+# Default sync behavior
+dry_run = false            # Preview changes without applying them
+ignore_errors = false      # Continue syncing if non-critical errors occur
+max_depth = 3              # Maximum directory depth for vault discovery
+default_vault = ""         # Default source vault path (optional)
+
+[backup]
+# Backup configuration
+enabled = true             # Enable automatic backups before sync
+max_backups = 5           # Number of backups to keep
+backup_dir = ".backups"   # Backup directory name
+compression = true        # Compress backups to save space
+
+# Backup behavior
+dry_run = false           # Preview backup operations
+ignore_errors = false     # Continue if non-critical errors occur
+backup_on_sync = true     # Create backup before each sync
+
+[logging]
+# Logging configuration
+level = "INFO"            # Log level (DEBUG, INFO, WARNING, ERROR)
+format = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"
+log_dir = "logs"         # Directory for log files
+
+# Log rotation settings
+rotation = "1 week"       # Rotate logs weekly
+retention = "1 month"     # Keep logs for one month
+compression = "zip"       # Compress rotated logs
+
+[paths]
+# Default search paths for vault discovery
+search_paths = [          # List of paths to search for vaults
+    "~/Documents",
+    "~/Dropbox",
+    "~/iCloudDrive"
+]
+
+[plugins]
+# Plugin-specific settings
+plugin_blacklist = []     # Plugins to never sync
+required_plugins = []     # Plugins that must be present

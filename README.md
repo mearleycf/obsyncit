@@ -6,10 +6,15 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
 
 - **Comprehensive Sync**: Synchronize all essential Obsidian settings:
   - Core settings files (appearance.json, app.json, etc.)
-  - Community plugins and configurations
+  - Plugin configuration (core plugins and community plugins)
+  - Plugin data and settings
+  - Plugin icons and resources
   - Custom themes
   - CSS snippets
   - Hotkey configurations
+  - Template settings
+  - Type definitions
+  - Migration settings
 
 - **Safety First**:
   - Automatic backup creation before any sync
@@ -18,6 +23,7 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
   - Keeps last 5 backups by default
   - Detailed logging of all operations
   - Vault discovery and validation
+  - Non-breaking sync (missing files don't stop the sync)
 
 - **Flexible Usage**:
   - Command-line interface for automation
@@ -25,6 +31,7 @@ A powerful Python tool for synchronizing settings between Obsidian vaults, inclu
   - Selective syncing of specific settings
   - Backup restoration capabilities
   - Multiple vault support with auto-discovery
+  - Smart plugin synchronization
 
 ## Installation
 
@@ -41,8 +48,8 @@ source .venv/bin/activate  # On Unix/macOS
 # or
 .venv\Scripts\activate    # On Windows
 
-# Install in development mode
-pip install -e .
+# Install in development mode with all dependencies
+pip install -e ".[dev]"
 ```
 
 ## Usage
@@ -58,11 +65,14 @@ obsyncit /path/to/source/vault /path/to/target/vault
 # Auto-discover and list available vaults
 obsyncit --list-vaults
 
+# Custom search path for vaults
+obsyncit --list-vaults --search-path ~/Documents
+
 # Dry run to preview changes
 obsyncit --dry-run /path/to/source/vault /path/to/target/vault
 
 # Sync specific settings only
-obsyncit --items themes plugins /path/to/source/vault /path/to/target/vault
+obsyncit --items themes plugins community-plugins.json /path/to/source/vault /path/to/target/vault
 
 # Restore from backup
 obsyncit --restore latest /path/to/target/vault
@@ -73,15 +83,40 @@ obsyncit --restore latest /path/to/target/vault
 ```bash
 # Launch the interactive TUI
 obsyncit-tui
+
+# Launch with custom search path
+obsyncit-tui --search-path ~/Documents
 ```
 
 The TUI provides an interactive interface for:
 
-- Selecting source and target vaults
-- Previewing sync operations
-- Performing dry runs
+- Discovering and selecting source and target vaults
+- Previewing sync operations with detailed status
+- Performing dry runs to validate changes
 - Executing syncs with visual feedback
-- Managing backups
+- Managing backups and restores
+
+### Synced Items
+
+ObsyncIt syncs the following items by default:
+
+1. Core Settings:
+   - app.json
+   - appearance.json
+   - hotkeys.json
+   - types.json
+   - templates.json
+
+2. Plugin Settings:
+   - core-plugins.json
+   - community-plugins.json
+   - core-plugins-migration.json
+   - plugins directory (with all plugin data)
+   - icons directory (plugin resources)
+
+3. Additional Content:
+   - themes directory
+   - snippets directory
 
 ### Configuration
 
@@ -92,26 +127,23 @@ Create a `config.toml` in your config directory:
 
 ```toml
 [sync]
-# Settings files to sync
-settings_files = [
-    "appearance.json",
-    "app.json",
-    "core-plugins.json",
-    "community-plugins.json",
-    "hotkeys.json"
-]
+# Enable/disable component syncing
+core_settings = true
+core_plugins = true
+community_plugins = true
+themes = true
+snippets = true
 
-# Directories to sync
-settings_dirs = [
-    "plugins",
-    "themes",
-    "snippets"
-]
+# Operation settings
+dry_run = false
+ignore_errors = false
 
 [backup]
 # Backup settings
 max_backups = 5
 backup_dir = ".backups"
+dry_run = false
+ignore_errors = false
 
 [logging]
 # Logging configuration
@@ -134,10 +166,9 @@ obsyncit/
 ├── vault_discovery.py # Vault discovery logic
 ├── errors.py        # Error handling
 ├── logger.py        # Logging configuration
-└── schemas/         # JSON schemas
-    ├── appearance.json
-    ├── app.json
-    └── ...
+└── schemas/         # Configuration schemas
+    ├── config.py     # Configuration models
+    └── __init__.py   # Schema exports
 ```
 
 ## Development
@@ -167,7 +198,17 @@ pytest --cov=obsyncit
 # Run specific test categories
 pytest tests/test_sync.py    # Sync tests
 pytest tests/test_backup.py  # Backup tests
-pytest tests/test_cli.py     # CLI tests
+pytest tests/test_vault.py   # Vault tests
+pytest tests/test_tui.py     # TUI tests
+```
+
+### Type Checking
+
+The project uses mypy for type checking:
+
+```bash
+# Run type checker
+mypy obsyncit
 ```
 
 ### Code Style
@@ -176,8 +217,21 @@ The project follows strict PEP 8 guidelines and uses:
 
 - Black for code formatting
 - isort for import sorting
-- flake8 for linting
+- ruff for fast linting
 - mypy for type checking
+- pylint for additional static analysis
+
+Run all checks with:
+
+```bash
+# Format code
+black obsyncit tests
+isort obsyncit tests
+
+# Run linters
+ruff check obsyncit tests
+pylint obsyncit tests
+```
 
 ## License
 
@@ -192,3 +246,12 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
+
+## Support
+
+If you encounter any issues or need assistance:
+
+1. Check the [Issues](../../issues) section for known problems
+2. Check the logs (usually in ~/.obsyncit/logs/ or %APPDATA%\obsyncit\logs\)
+3. Run with --debug flag for more detailed logging
+4. Open a new issue with logs and steps to reproduce

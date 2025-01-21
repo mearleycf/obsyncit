@@ -37,6 +37,7 @@ setup(
             'obsyncit-tui=obsyncit.obsync_tui:main',
         ],
     },
+    scripts=['scripts/obsyncit', 'scripts/obsyncit-tui'],
     python_requires='>=3.8',
     description="Sync Obsidian vault settings between different vaults",
     long_description=open("README.md").read(),
